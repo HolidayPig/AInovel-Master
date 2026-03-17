@@ -9,8 +9,9 @@ backend/__pycache__/
 venv/
 env/
 
-# Data & DB (optional: remove data/ if you want to track DB)
-data/
+# Data & DB：忽略 data 下所有文件，但保留空目录（见 data/.gitkeep）
+data/*
+!data/.gitkeep
 
 # Env & secrets
 .env
