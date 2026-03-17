@@ -67,9 +67,13 @@ async def generate_stream(
         else:
             try:
                 async with AsyncSessionLocal() as session:
-                    await card_engine.extract_and_update_cards(
+                    payload = await card_engine.extract_card_update_suggestions(
                         "".join(full_text), body.novel_id, body.settings_id, session
                     )
+                    if payload:
+                        yield _sse_line(
+                            json.dumps({"type": "card_updates", "payload": payload}, ensure_ascii=False)
+                        )
             except Exception:
                 pass
         yield _sse_line(json.dumps({"type": "done"}, ensure_ascii=False))

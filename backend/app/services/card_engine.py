@@ -73,58 +73,18 @@ def select_relevant_cards(cards: list[Card], text: str) -> list[Card]:
 async def extract_and_update_cards(
     full_text: str, novel_id: int, settings_id: int, db: AsyncSession
 ) -> None:
-    """Optionally call AI to extract card updates from generated text and merge into auto_update cards."""
-    if not full_text.strip():
+    """(Legacy) Auto-apply card updates. Kept for compatibility; prefer extract_card_update_suggestions + user confirm."""
+    payload = await extract_card_update_suggestions(full_text, novel_id, settings_id, db)
+    if not payload:
         return
-    result = await db.execute(
-        select(Card).where(Card.novel_id == novel_id, Card.auto_update == True)
-    )
-    auto_cards = list(result.scalars().all())
-    set_result = await db.execute(select(Settings).where(Settings.id == settings_id))
-    settings = set_result.scalar_one_or_none()
-    if not settings or not (settings.api_key_encrypted or "").strip():
-        return
-    # v0.2.3: unified text updates + optional new card creation
-    prompt = (
-        "以下是一段小说正文。请根据正文，更新已有卡片的【详细描述】文本，并在有必要时创建新的文本卡片。\n"
-        "你只输出一个 JSON 对象，格式严格如下：\n"
-        "{\n"
-        "  \"updates\": [ {\"card_id\": 1, \"text\": \"...\"}, ... ],\n"
-        "  \"new_cards\": [ {\"card_type\": \"character|worldview|setting|plot|custom\", \"name\": \"...\", \"text\": \"...\", \"auto_update\": true}, ... ]\n"
-        "}\n"
-        "规则：\n"
-        "- updates 只包含正文推进后有变化的卡片；text 为更新后的完整描述。\n"
-        "- new_cards 仅在正文出现新的重要角色/设定/世界观信息时创建；避免与现有卡片同名同类型重复。\n"
-        "- 除 JSON 外不要输出任何文字。\n\n"
-        "【正文】\n" + full_text[-4500:] + "\n\n【已有卡片】\n"
-    )
-    for c in auto_cards:
-        prompt += f"- id={c.id} name={c.name} type={c.card_type} text={_extract_card_text(c)}\n"
-    # Also show non-auto cards names to reduce duplicates
-    if not auto_cards:
-        all_result = await db.execute(select(Card).where(Card.novel_id == novel_id))
-        all_cards = list(all_result.scalars().all())
-        for c in all_cards:
-            prompt += f"- existing name={c.name} type={c.card_type}\n"
     try:
-        raw = await ai_service.complete(
-            provider=settings.provider,
-            api_key=(settings.api_key_encrypted or "").strip(),
-            model=settings.model_name or "gpt-4o-mini",
-            system_prompt="你只输出 JSON，不要其他文字。",
-            user_content=prompt,
-            proxy_url=settings.proxy_url,
-            extra_config_json=settings.extra_config_json or "{}",
-        )
-        if not raw:
-            return
-        raw_clean = re.sub(r"^[^{]*", "", raw)
-        raw_clean = re.sub(r"[^}]*$", "", raw_clean)
-        payload = json.loads(raw_clean)
         updates_list = payload.get("updates") or []
         new_cards = payload.get("new_cards") or []
+        result = await db.execute(
+            select(Card).where(Card.novel_id == novel_id, Card.auto_update == True)
+        )
+        auto_cards = list(result.scalars().all())
 
-        # Apply updates
         if isinstance(updates_list, list):
             for item in updates_list:
                 try:
@@ -139,7 +99,6 @@ async def extract_and_update_cards(
                     continue
                 card.content_json = json.dumps({"text": text_val.strip()}, ensure_ascii=False)
 
-        # Create new cards (avoid duplicates by (type,name))
         if isinstance(new_cards, list) and new_cards:
             all_result = await db.execute(select(Card).where(Card.novel_id == novel_id))
             existing = list(all_result.scalars().all())
@@ -165,10 +124,107 @@ async def extract_and_update_cards(
                 )
                 db.add(card)
                 existing_keys.add(key)
-
         await db.commit()
     except Exception:
         pass
+
+
+async def extract_card_update_suggestions(
+    full_text: str, novel_id: int, settings_id: int, db: AsyncSession
+) -> dict[str, Any] | None:
+    """Return proposed card updates/new cards (do NOT apply). Used by frontend confirmation flow."""
+    if not full_text.strip():
+        return None
+    result = await db.execute(
+        select(Card).where(Card.novel_id == novel_id, Card.auto_update == True)
+    )
+    auto_cards = list(result.scalars().all())
+    set_result = await db.execute(select(Settings).where(Settings.id == settings_id))
+    settings = set_result.scalar_one_or_none()
+    if not settings or not (settings.api_key_encrypted or "").strip():
+        return None
+
+    prompt = (
+        "以下是一段小说正文。请根据正文，给出需要更新的卡片【详细描述】候选文本，并在有必要时给出应创建的新文本卡片。\n"
+        "你只输出一个 JSON 对象：\n"
+        "{\n"
+        "  \"updates\": [ {\"card_id\": 1, \"text\": \"...\"}, ... ],\n"
+        "  \"new_cards\": [ {\"card_type\": \"character|worldview|setting|plot|custom\", \"name\": \"...\", \"text\": \"...\", \"auto_update\": true}, ... ]\n"
+        "}\n"
+        "规则：\n"
+        "- updates 只包含正文推进后有变化的卡片；text 为更新后的完整描述。\n"
+        "- new_cards 仅在正文出现新的重要角色/设定/世界观信息时创建；避免与现有卡片同名同类型重复。\n"
+        "- 除 JSON 外不要输出任何文字。\n\n"
+        "【正文】\n" + full_text[-4500:] + "\n\n【可更新卡片】\n"
+    )
+    for c in auto_cards:
+        prompt += f"- id={c.id} name={c.name} type={c.card_type} text={_extract_card_text(c)}\n"
+    if not auto_cards:
+        all_result = await db.execute(select(Card).where(Card.novel_id == novel_id))
+        all_cards = list(all_result.scalars().all())
+        for c in all_cards:
+            prompt += f"- existing name={c.name} type={c.card_type}\n"
+    try:
+        raw = await ai_service.complete(
+            provider=settings.provider,
+            api_key=(settings.api_key_encrypted or "").strip(),
+            model=settings.model_name or "gpt-4o-mini",
+            system_prompt="你只输出 JSON，不要其他文字。",
+            user_content=prompt,
+            proxy_url=settings.proxy_url,
+            extra_config_json=settings.extra_config_json or "{}",
+        )
+        if not raw:
+            return None
+        raw_clean = re.sub(r"^[^{]*", "", raw)
+        raw_clean = re.sub(r"[^}]*$", "", raw_clean)
+        payload = json.loads(raw_clean)
+        if not isinstance(payload, dict):
+            return None
+        updates_list = payload.get("updates") or []
+        new_cards = payload.get("new_cards") or []
+        out_updates: list[dict[str, Any]] = []
+        if isinstance(updates_list, list):
+            for item in updates_list:
+                try:
+                    cid = int(item.get("card_id"))
+                except Exception:
+                    continue
+                text_val = item.get("text")
+                if not isinstance(text_val, str) or not text_val.strip():
+                    continue
+                if not any(c.id == cid for c in auto_cards):
+                    continue
+                out_updates.append({"card_id": cid, "text": text_val.strip()})
+        out_new: list[dict[str, Any]] = []
+        if isinstance(new_cards, list) and new_cards:
+            all_result = await db.execute(select(Card).where(Card.novel_id == novel_id))
+            existing = list(all_result.scalars().all())
+            existing_keys = {(c.card_type, (c.name or "").strip()) for c in existing}
+            for item in new_cards:
+                ctype = item.get("card_type")
+                name = (item.get("name") or "").strip()
+                text_val = item.get("text")
+                auto = item.get("auto_update")
+                if ctype not in ("character", "worldview", "setting", "plot", "custom"):
+                    continue
+                if not name or not isinstance(text_val, str) or not text_val.strip():
+                    continue
+                if (ctype, name) in existing_keys:
+                    continue
+                out_new.append(
+                    {
+                        "card_type": ctype,
+                        "name": name,
+                        "text": text_val.strip(),
+                        "auto_update": bool(auto) if auto is not None else True,
+                    }
+                )
+        if not out_updates and not out_new:
+            return None
+        return {"updates": out_updates, "new_cards": out_new}
+    except Exception:
+        return None
 
 
 def build_system_prompt(cards: list[Card], author: Any = None) -> str:

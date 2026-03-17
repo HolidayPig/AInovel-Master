@@ -5,6 +5,11 @@
       :phase="progressPhase"
       :bar-color="progressBarColor"
     />
+    <CardUpdateConfirmDialog
+      v-model="cardUpdateVisible"
+      :payload="cardUpdatePayload"
+      @applied="onCardsApplied"
+    />
     <div v-if="!store.currentChapter" class="empty-hint">
       请从左侧选择或新建章节后编辑
     </div>
@@ -51,6 +56,7 @@ import NovelEditor from "./NovelEditor.vue";
 import ProgressBar from "./ProgressBar.vue";
 import { streamGenerate } from "@/api/ai";
 import { ElMessage } from "element-plus";
+import CardUpdateConfirmDialog from "@/components/RightPanel/CardUpdateConfirmDialog.vue";
 
 const store = useNovelStore();
 const settingsStore = useSettingsStore();
@@ -63,6 +69,11 @@ const progressVisible = ref(false);
 const progressPhase = ref<"prepare" | "thinking" | "writing" | "done" | "error">("prepare");
 const progressBarColor = ref({ from: "#409eff", to: "#79bbff" });
 const showConfirmBar = ref(false);
+const cardUpdateVisible = ref(false);
+const cardUpdatePayload = ref<{
+  updates: { card_id: number; text: string }[];
+  new_cards: { card_type: string; name: string; text: string; auto_update: boolean }[];
+} | null>(null);
 let lastGenerateParams: {
   settings_id: number;
   novel_id: number;
@@ -134,6 +145,8 @@ async function handleSend() {
   }
   generating.value = true;
   streamingText.value = "";
+  cardUpdatePayload.value = null;
+  cardUpdateVisible.value = false;
   progressPhase.value = "prepare";
   progressBarColor.value = pickProgressColor();
   progressVisible.value = true;
@@ -171,6 +184,10 @@ async function handleSend() {
           if (progressPhase.value !== "writing") progressPhase.value = "writing";
           streamingText.value += ev.text;
         }
+        if (ev.type === "card_updates") {
+          cardUpdatePayload.value = ev.payload;
+          // 等用户点击「接受」并入正文后再触发确认弹窗
+        }
         if (ev.type === "error") {
           clearTimeout(tThinking);
           progressPhase.value = "error";
@@ -205,6 +222,11 @@ async function handleSend() {
   }
 }
 
+function onCardsApplied() {
+  // 更新列表显示（新建卡片已 push，保险起见刷新一次）
+  store.fetchCards();
+}
+
 function acceptGenerated() {
   const appended = streamingText.value;
   if (appended && store.currentChapter) {
@@ -217,12 +239,23 @@ function acceptGenerated() {
   showConfirmBar.value = false;
   lastGenerateParams = null;
   ElMessage.success("已并入正文");
+
+  // 接受后再弹出卡片更新确认（仅当后端提供了候选更新/新卡片）
+  if (
+    cardUpdatePayload.value &&
+    ((cardUpdatePayload.value.updates?.length ?? 0) > 0 ||
+      (cardUpdatePayload.value.new_cards?.length ?? 0) > 0)
+  ) {
+    cardUpdateVisible.value = true;
+  }
 }
 
 function regenerate() {
   if (!lastGenerateParams) return;
   streamingText.value = "";
   showConfirmBar.value = false;
+  cardUpdatePayload.value = null;
+  cardUpdateVisible.value = false;
   progressBarColor.value = pickProgressColor();
   progressVisible.value = true;
   progressPhase.value = "prepare";
@@ -232,6 +265,10 @@ function regenerate() {
     if (ev.type === "delta") {
       if (progressPhase.value !== "writing") progressPhase.value = "writing";
       streamingText.value += ev.text;
+    }
+    if (ev.type === "card_updates") {
+      cardUpdatePayload.value = ev.payload;
+      // 等用户点击「接受」并入正文后再触发确认弹窗
     }
     if (ev.type === "error") {
       progressPhase.value = "error";
