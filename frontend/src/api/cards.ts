@@ -29,3 +29,29 @@ export function updateCard(
 export function deleteCard(id: number) {
   return api.delete(`/cards/${id}`);
 }
+
+export function refreshAllCards(novelId: number, settingsId: number) {
+  return api.post<{ updated: number }>("/cards/refresh-all", {
+    novel_id: novelId,
+    settings_id: settingsId,
+  });
+}
+
+export function refreshOneCardSuggestion(
+  cardId: number,
+  novelId: number,
+  settingsId: number
+) {
+  return api.post<{ old_text: string; new_text: string }>("/cards/refresh-one-suggestion", {
+    card_id: cardId,
+    novel_id: novelId,
+    settings_id: settingsId,
+  });
+}
+
+export function searchOnlineCard(cardId: number, settingsId: number) {
+  return api.post<{ new_text: string }>("/cards/search-online", {
+    card_id: cardId,
+    settings_id: settingsId,
+  });
+}

@@ -33,17 +33,43 @@
               </el-icon>
             </div>
             <div class="card-preview">{{ cardPreview(card) }}</div>
-            <div v-if="card.auto_update" class="card-badge">自动更新</div>
+            <div class="card-actions">
+              <el-button type="primary" link size="small" :loading="updatingCardId === card.id" @click.stop="handleCardUpdate(card)">
+                更新
+              </el-button>
+              <el-button type="primary" link size="small" :loading="searchingCardId === card.id" @click.stop="handleSearchOnline(card)">
+                联网查询
+              </el-button>
+            </div>
           </div>
           <div v-if="!filteredCards.length" class="empty">暂无卡片，点击「新建」添加</div>
         </div>
       </el-scrollbar>
+      <div class="panel-footer">
+        <el-button
+          type="primary"
+          :loading="refreshingAll"
+          :disabled="!filteredCards.length"
+          @click="handleRefreshAll"
+        >
+          一键更新
+        </el-button>
+      </div>
     </template>
 
+    <CardUpdateConfirmDialog
+      v-model="cardUpdateVisible"
+      :payload="cardUpdatePayload"
+      @applied="onCardsApplied"
+    />
     <CardEditor
       v-model="editorVisible"
       :novel-id="store.currentNovel?.id ?? 0"
       :card="editingCard"
+      :updating="editingCard !== null && updatingCardId === editingCard.id"
+      :searching="editingCard !== null && searchingCardId === editingCard.id"
+      @request-update="onEditorRequestUpdate"
+      @request-search-online="onEditorRequestSearchOnline"
       @saved="onCardSaved"
     />
   </div>
@@ -54,13 +80,25 @@ import { ref, computed } from "vue";
 import { Plus, Delete } from "@element-plus/icons-vue";
 import type { Card } from "@/types";
 import { useNovelStore } from "@/stores/novel";
+import { useSettingsStore } from "@/stores/settings";
 import { ElMessage, ElMessageBox } from "element-plus";
 import CardEditor from "./CardEditor.vue";
+import CardUpdateConfirmDialog from "./CardUpdateConfirmDialog.vue";
+import * as cardApi from "@/api/cards";
 
 const store = useNovelStore();
+const settingsStore = useSettingsStore();
 const activeTab = ref("all");
 const editorVisible = ref(false);
 const editingCard = ref<Card | null>(null);
+const refreshingAll = ref(false);
+const updatingCardId = ref<number | null>(null);
+const searchingCardId = ref<number | null>(null);
+const cardUpdateVisible = ref(false);
+const cardUpdatePayload = ref<{
+  updates: { card_id: number; text: string }[];
+  new_cards: { card_type: string; name: string; text: string; auto_update: boolean }[];
+} | null>(null);
 
 const filteredCards = computed(() => {
   const list = store.cards;
@@ -80,13 +118,11 @@ function onCardSaved(payload: {
   card_type: string;
   name: string;
   content_json: string;
-  auto_update: boolean;
 }) {
   if (payload.id != null) {
     store.updateCard(payload.id, {
       name: payload.name,
       content_json: payload.content_json,
-      auto_update: payload.auto_update,
     });
   } else {
     store.createCard({
@@ -94,7 +130,6 @@ function onCardSaved(payload: {
       card_type: payload.card_type,
       name: payload.name,
       content_json: payload.content_json,
-      auto_update: payload.auto_update,
     });
   }
   ElMessage.success("已保存");
@@ -107,6 +142,84 @@ function handleDeleteCard(card: Card) {
       ElMessage.success("已删除");
     })
     .catch(() => {});
+}
+
+function getSettingsId(): number | null {
+  return settingsStore.currentId ?? settingsStore.current()?.id ?? null;
+}
+
+async function handleRefreshAll() {
+  const novel = store.currentNovel;
+  const settingsId = getSettingsId();
+  if (!novel || !settingsId) {
+    ElMessage.warning("请先在设置中配置 API Key 和模型");
+    return;
+  }
+  refreshingAll.value = true;
+  try {
+    const res = await cardApi.refreshAllCards(novel.id, settingsId);
+    await store.fetchCards();
+    ElMessage.success(`已更新 ${res.data.updated} 张卡片`);
+  } catch (e) {
+    ElMessage.error(String(e));
+  } finally {
+    refreshingAll.value = false;
+  }
+}
+
+async function handleCardUpdate(card: Card) {
+  const novel = store.currentNovel;
+  const settingsId = getSettingsId();
+  if (!novel || !settingsId) {
+    ElMessage.warning("请先在设置中配置 API Key 和模型");
+    return;
+  }
+  updatingCardId.value = card.id;
+  try {
+    const res = await cardApi.refreshOneCardSuggestion(card.id, novel.id, settingsId);
+    cardUpdatePayload.value = {
+      updates: [{ card_id: card.id, text: res.data.new_text }],
+      new_cards: [],
+    };
+    cardUpdateVisible.value = true;
+  } catch (e) {
+    ElMessage.error(String(e));
+  } finally {
+    updatingCardId.value = null;
+  }
+}
+
+function onEditorRequestUpdate() {
+  if (editingCard.value) handleCardUpdate(editingCard.value);
+}
+
+function onEditorRequestSearchOnline() {
+  if (editingCard.value) handleSearchOnline(editingCard.value);
+}
+
+function onCardsApplied() {
+  store.fetchCards();
+}
+
+async function handleSearchOnline(card: Card) {
+  const settingsId = getSettingsId();
+  if (!settingsId) {
+    ElMessage.warning("请先在设置中配置 API Key 和模型");
+    return;
+  }
+  searchingCardId.value = card.id;
+  try {
+    const res = await cardApi.searchOnlineCard(card.id, settingsId);
+    cardUpdatePayload.value = {
+      updates: [{ card_id: card.id, text: res.data.new_text }],
+      new_cards: [],
+    };
+    cardUpdateVisible.value = true;
+  } catch (e) {
+    ElMessage.error(String(e));
+  } finally {
+    searchingCardId.value = null;
+  }
 }
 
 function cardPreview(card: Card): string {
@@ -198,14 +311,22 @@ function cardPreview(card: Card): string {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card-badge {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--el-color-primary);
-}
 .empty {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   padding: 16px;
+}
+.card-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 4px;
+}
+.panel-footer {
+  flex-shrink: 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+.panel-footer .el-button {
+  width: 100%;
 }
 </style>

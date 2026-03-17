@@ -6,12 +6,40 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Card, Settings
+from ..models import Card, Settings, Novel, Chapter
 from . import ai_service
+
+
+def _strip_html(html: str) -> str:
+    """Remove HTML tags and decode entities for plain text."""
+    if not html or not isinstance(html, str):
+        return ""
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def _normalize_text(s: str) -> str:
     return re.sub(r"\s+", "", (s or "").strip())
+
+
+def _hide_reference_links(text: str) -> str:
+    """
+    Hide/strip reference URLs and citation blocks from tool-assisted answers.
+    This is best-effort cleaning for UI; does not affect model behavior.
+    """
+    if not text or not isinstance(text, str):
+        return ""
+    t = text
+    # Remove markdown links but keep label: [label](url) -> label
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", t, flags=re.IGNORECASE)
+    # Remove raw URLs
+    t = re.sub(r"https?://\S+", "", t, flags=re.IGNORECASE)
+    # Drop common citation headers/sections
+    t = re.sub(r"(?im)^\s*(sources?|references?|citations?)\s*[:：].*$", "", t)
+    # Collapse whitespace
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    return t
 
 
 def _extract_card_text(card: Card) -> str:
@@ -225,6 +253,159 @@ async def extract_card_update_suggestions(
         return {"updates": out_updates, "new_cards": out_new}
     except Exception:
         return None
+
+
+async def get_novel_full_text(db: AsyncSession, novel_id: int) -> str:
+    """Get novel description + all chapters content as plain text (HTML stripped)."""
+    novel_result = await db.execute(select(Novel).where(Novel.id == novel_id))
+    novel = novel_result.scalar_one_or_none()
+    if not novel:
+        return ""
+    parts = []
+    if novel.description and novel.description.strip():
+        parts.append(novel.description.strip())
+    ch_result = await db.execute(
+        select(Chapter).where(Chapter.novel_id == novel_id).order_by(Chapter.sort_order, Chapter.id)
+    )
+    for ch in ch_result.scalars().all():
+        if ch.content:
+            parts.append(_strip_html(ch.content))
+    return "\n\n".join(parts)
+
+
+async def refresh_all_cards(novel_id: int, settings_id: int, db: AsyncSession) -> int:
+    """Read latest novel content and re-extract all cards; apply directly. Returns count updated."""
+    full_text = await get_novel_full_text(db, novel_id)
+    if not full_text.strip():
+        return 0
+    result = await db.execute(select(Card).where(Card.novel_id == novel_id))
+    cards = list(result.scalars().all())
+    if not cards:
+        return 0
+    set_result = await db.execute(select(Settings).where(Settings.id == settings_id))
+    settings = set_result.scalar_one_or_none()
+    if not settings or not (settings.api_key_encrypted or "").strip():
+        return 0
+    prompt = (
+        "以下是一部小说的最新正文与设定信息。请根据正文，为下面列出的每个卡片重新提炼并输出更新后的【详细描述】文本。\n"
+        "你只输出一个 JSON 对象：\n"
+        "{\n"
+        '  "updates": [ {"card_id": 1, "text": "..."}, ... ]\n'
+        "}\n"
+        "规则：为每个 card_id 输出一条更新；text 为根据小说内容提炼后的完整描述，不要解释。除 JSON 外不要输出任何文字。\n\n"
+        "【小说正文】\n" + full_text[-12000:] + "\n\n【待更新卡片】\n"
+    )
+    for c in cards:
+        prompt += f"- card_id={c.id} name={c.name} type={c.card_type} 当前内容：{_extract_card_text(c)[:500]}\n"
+    try:
+        raw = await ai_service.complete(
+            provider=settings.provider,
+            api_key=(settings.api_key_encrypted or "").strip(),
+            model=settings.model_name or "gpt-4o-mini",
+            system_prompt="你只输出 JSON，不要其他文字。",
+            user_content=prompt,
+            proxy_url=settings.proxy_url,
+            extra_config_json=settings.extra_config_json or "{}",
+        )
+        if not raw:
+            return 0
+        raw_clean = re.sub(r"^[^{]*", "", raw)
+        raw_clean = re.sub(r"[^}]*$", "", raw_clean)
+        payload = json.loads(raw_clean)
+        updates_list = payload.get("updates") or []
+        if not isinstance(updates_list, list):
+            return 0
+        card_by_id = {c.id: c for c in cards}
+        updated = 0
+        for item in updates_list:
+            try:
+                cid = int(item.get("card_id"))
+            except Exception:
+                continue
+            text_val = item.get("text")
+            if not isinstance(text_val, str) or not text_val.strip():
+                continue
+            card = card_by_id.get(cid)
+            if not card:
+                continue
+            card.content_json = json.dumps({"text": text_val.strip()}, ensure_ascii=False)
+            updated += 1
+        return updated
+    except Exception:
+        return 0
+
+
+async def refresh_one_card_suggestion(
+    card_id: int, novel_id: int, settings_id: int, db: AsyncSession
+) -> dict[str, str] | None:
+    """Re-extract one card from latest novel content; return { old_text, new_text } for user confirm."""
+    result = await db.execute(select(Card).where(Card.id == card_id, Card.novel_id == novel_id))
+    card = result.scalar_one_or_none()
+    if not card:
+        return None
+    full_text = await get_novel_full_text(db, novel_id)
+    set_result = await db.execute(select(Settings).where(Settings.id == settings_id))
+    settings = set_result.scalar_one_or_none()
+    if not settings or not (settings.api_key_encrypted or "").strip():
+        return None
+    old_text = _extract_card_text(card)
+    prompt = (
+        "以下是一部小说的最新正文。请根据正文，仅针对下面这一张卡片，重新提炼并输出更新后的【详细描述】文本。\n"
+        "只输出一段完整描述正文，不要 JSON、不要解释、不要卡片名称。\n\n"
+        "【小说正文】\n" + full_text[-8000:] + "\n\n"
+        f"【当前卡片】name={card.name} type={card.card_type}\n当前内容：\n{old_text}\n\n请输出更新后的描述："
+    )
+    try:
+        new_text = await ai_service.complete(
+            provider=settings.provider,
+            api_key=(settings.api_key_encrypted or "").strip(),
+            model=settings.model_name or "gpt-4o-mini",
+            system_prompt="你只输出一段描述正文，不要其他内容。",
+            user_content=prompt,
+            proxy_url=settings.proxy_url,
+            extra_config_json=settings.extra_config_json or "{}",
+        )
+        if not new_text or not isinstance(new_text, str):
+            return None
+        return {"old_text": old_text, "new_text": new_text.strip()}
+    except Exception:
+        return None
+
+
+async def search_online_and_refine_card(card_id: int, settings_id: int, db: AsyncSession) -> str | None:
+    """Use AI with web search to find related info by card name/description and refine into card content. Returns new text."""
+    result = await db.execute(select(Card).where(Card.id == card_id))
+    card = result.scalar_one_or_none()
+    if not card:
+        return None
+    set_result = await db.execute(select(Settings).where(Settings.id == settings_id))
+    settings = set_result.scalar_one_or_none()
+    if not settings or not (settings.api_key_encrypted or "").strip():
+        return None
+    desc = _extract_card_text(card)
+    name = (card.name or "").strip() or "未命名"
+    prompt = (
+        f"请根据以下卡片名称和描述，在互联网上搜索相关资料，提炼成一段完整的卡片描述内容。\n"
+        f"卡片名称：{name}\n"
+        f"卡片类型：{card.card_type}\n"
+    )
+    if desc:
+        prompt += f"当前描述（可作参考）：\n{desc}\n\n"
+    prompt += "请只输出提炼后的完整描述正文，不要解释、不要标题。"
+    raw = await ai_service.complete(
+        provider=settings.provider,
+        api_key=(settings.api_key_encrypted or "").strip(),
+        model=settings.model_name or "gpt-4o-mini",
+        system_prompt="你是一名写作助手。根据用户给的卡片信息，联网搜索并提炼成一段可用于小说设定的描述。只输出描述正文。",
+        user_content=prompt,
+        proxy_url=settings.proxy_url,
+        extra_config_json=settings.extra_config_json or "{}",
+        web_search_enabled=True,
+    )
+    if not raw or not isinstance(raw, str):
+        return None
+    cleaned = _hide_reference_links(raw.strip())
+    return cleaned.strip() if cleaned.strip() else None
 
 
 def build_system_prompt(cards: list[Card], author: Any = None) -> str:

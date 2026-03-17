@@ -102,7 +102,7 @@
           <el-button text type="danger" block @click="handleDeleteNovel">删除小说</el-button>
         </template>
         <template v-else-if="contextTarget === 'chapter'">
-          <el-button text block @click="handleRenameChapter">重命名</el-button>
+          <el-button text block @click="handleEditChapter">编辑</el-button>
           <el-button text type="danger" block @click="handleDeleteChapter">删除章节</el-button>
         </template>
         <template v-else-if="contextTarget === 'author'">
@@ -123,6 +123,12 @@
         <el-button type="primary" @click="submitRename">确定</el-button>
       </template>
     </el-dialog>
+
+    <ChapterEditDialog
+      v-model="chapterEditVisible"
+      :chapter="editingChapter"
+      @saved="onChapterEdited"
+    />
 
     <AuthorEditor
       v-model="authorEditorVisible"
@@ -154,6 +160,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import AuthorEditor from "./AuthorEditor.vue";
 import NovelCreateDialog from "./NovelCreateDialog.vue";
 import ChapterCreateDialog from "./ChapterCreateDialog.vue";
+import ChapterEditDialog from "./ChapterEditDialog.vue";
 
 const store = useNovelStore();
 const authorStore = useAuthorStore();
@@ -162,6 +169,8 @@ const editingAuthor = ref<Author | null>(null);
 const authorEditorVisible = ref(false);
 const novelCreateVisible = ref(false);
 const chapterCreateVisible = ref(false);
+const chapterEditVisible = ref(false);
+const editingChapter = ref<Chapter | null>(null);
 
 onMounted(() => {
   authorStore.fetchAuthors();
@@ -292,12 +301,22 @@ function handleRenameNovel() {
   }
 }
 
-function handleRenameChapter() {
+function handleEditChapter() {
   contextMenuVisible.value = false;
-  if (contextChapter.value) {
-    renameInput.value = contextChapter.value.title || "";
-    renameDialogVisible.value = true;
-  }
+  if (!contextChapter.value) return;
+  editingChapter.value = contextChapter.value;
+  chapterEditVisible.value = true;
+}
+
+async function onChapterEdited(payload: { id: number; title: string; summary: string; target_words: number }) {
+  await store.updateChapter(payload.id, {
+    title: payload.title,
+    summary: payload.summary || null,
+    target_words: payload.target_words || null,
+  });
+  ElMessage.success("已保存");
+  editingChapter.value = null;
+  contextChapter.value = null;
 }
 
 async function submitRename() {

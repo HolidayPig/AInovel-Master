@@ -43,7 +43,6 @@ export const useAuthorStore = defineStore("author", () => {
     currentAuthorId.value = id;
   }
 
-  const currentAuthor = ref<Author | null>(null);
   function getCurrentAuthor(): Author | null {
     if (currentAuthorId.value == null) return null;
     return authors.value.find((a) => a.id === currentAuthorId.value!) ?? null;

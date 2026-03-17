@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import json
 
-from ..database import get_db, AsyncSessionLocal
+from ..database import get_db
 from ..models import Settings, Card, Author
 from ..schemas.ai import GenerateRequest, SuggestTitleRequest
 from ..services import ai_service, card_engine
@@ -45,10 +45,7 @@ async def generate_stream(
         user_content += "【上文】\n" + body.context.strip() + "\n\n"
     user_content += "【续写提示】\n" + (body.prompt or "请继续写下去。")
 
-    full_text: list[str] = []
-
     async def event_stream():
-        nonlocal full_text
         try:
             async for chunk in ai_service.stream_generate(
                 provider=settings.provider,
@@ -57,25 +54,16 @@ async def generate_stream(
                 system_prompt=system_prompt,
                 user_content=user_content,
                 proxy_url=settings.proxy_url,
-                web_search_enabled=settings.web_search_enabled,
+                web_search_enabled=(
+                    body.web_search_enabled
+                    if body.web_search_enabled is not None
+                    else settings.web_search_enabled
+                ),
                 extra_config_json=settings.extra_config_json or "{}",
             ):
-                full_text.append(chunk)
                 yield _sse_line(json.dumps({"type": "delta", "text": chunk}, ensure_ascii=False))
         except Exception as e:
             yield _sse_line(json.dumps({"type": "error", "message": str(e)}, ensure_ascii=False))
-        else:
-            try:
-                async with AsyncSessionLocal() as session:
-                    payload = await card_engine.extract_card_update_suggestions(
-                        "".join(full_text), body.novel_id, body.settings_id, session
-                    )
-                    if payload:
-                        yield _sse_line(
-                            json.dumps({"type": "card_updates", "payload": payload}, ensure_ascii=False)
-                        )
-            except Exception:
-                pass
         yield _sse_line(json.dumps({"type": "done"}, ensure_ascii=False))
 
     return StreamingResponse(

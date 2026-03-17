@@ -20,6 +20,9 @@ data/*
 
 # Build & cache
 frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/tsconfig.node.tsbuildinfo
 *.log
 .cache/
 

@@ -46,10 +46,7 @@
           placeholder="如 http://127.0.0.1:7890（Clash 等）"
         />
       </el-form-item>
-      <el-form-item v-if="form.provider === 'grok' || form.provider === 'xai'" label="联网搜索">
-        <el-switch v-model="form.web_search_enabled" />
-        <span class="form-hint">开启后 Grok 可联网搜索</span>
-      </el-form-item>
+      <!-- 联网搜索已移至输入框工具栏，由用户每次发送时决定 -->
       <el-form-item v-if="form.provider === 'custom'" label="自定义 Base URL">
         <el-input
           v-model="form.base_url"
@@ -84,7 +81,6 @@ const form = ref({
   api_key_encrypted: "",
   model_name: "gpt-4o-mini",
   proxy_url: "" as string | null,
-  web_search_enabled: false,
   base_url: "",
 });
 const saving = ref(false);
@@ -108,7 +104,6 @@ function syncFormFromSettings() {
       api_key_encrypted: "",
       model_name: cur.model_name || "",
       proxy_url: cur.proxy_url ?? "",
-      web_search_enabled: cur.web_search_enabled,
       base_url: "",
     };
     if (cur.extra_config_json) {
@@ -139,7 +134,6 @@ async function handleSave() {
       provider: form.value.provider,
       model_name: form.value.model_name,
       proxy_url: form.value.proxy_url || null,
-      web_search_enabled: form.value.web_search_enabled,
     };
     if (form.value.api_key_encrypted) payload.api_key_encrypted = form.value.api_key_encrypted;
     if (form.value.provider === "custom" && form.value.base_url) {

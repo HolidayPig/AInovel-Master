@@ -13,3 +13,5 @@ class GenerateRequest(BaseModel):
     author_id: int | None = None
     context: str = ""
     prompt: str = ""
+    # Per-request override. If None, fall back to Settings.web_search_enabled.
+    web_search_enabled: bool | None = None

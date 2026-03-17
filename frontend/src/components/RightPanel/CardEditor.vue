@@ -37,14 +37,32 @@
           />
         </el-form-item>
       </template>
-      <el-form-item label="自动更新">
-        <el-switch v-model="form.auto_update" />
-        <span class="hint">开启后 AI 续写时会根据内容自动更新此卡片</span>
-      </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" @click="submit">保存</el-button>
+      <div class="footer-row">
+        <div class="footer-left">
+          <template v-if="isEdit">
+            <el-button
+              size="small"
+              :loading="props.updating"
+              @click="emit('requestUpdate')"
+            >
+              更新
+            </el-button>
+            <el-button
+              size="small"
+              :loading="props.searching"
+              @click="emit('requestSearchOnline')"
+            >
+              联网查询
+            </el-button>
+          </template>
+        </div>
+        <div class="footer-right">
+          <el-button @click="visible = false">取消</el-button>
+          <el-button type="primary" @click="submit">保存</el-button>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -58,11 +76,15 @@ const props = defineProps<{
   modelValue: boolean;
   novelId: number;
   card: Card | null;
+  updating?: boolean;
+  searching?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:modelValue": [v: boolean];
   close: [];
+  requestUpdate: [];
+  requestSearchOnline: [];
   saved: [
     payload: {
       id?: number;
@@ -70,7 +92,6 @@ const emit = defineEmits<{
       card_type: string;
       name: string;
       content_json: string;
-      auto_update: boolean;
     }
   ];
 }>();
@@ -85,7 +106,6 @@ const isEdit = computed(() => !!props.card);
 const form = ref({
   card_type: "character" as CardType,
   name: "",
-  auto_update: false,
 });
 
 const formFields = ref<Record<string, string>>({});
@@ -116,7 +136,6 @@ function loadCard() {
     form.value = {
       card_type: props.card.card_type as CardType,
       name: props.card.name || "",
-      auto_update: props.card.auto_update,
     };
     try {
       const o = JSON.parse(props.card.content_json || "{}");
@@ -139,7 +158,6 @@ function loadCard() {
     form.value = {
       card_type: "character",
       name: "",
-      auto_update: false,
     };
     formFields.value = { text: "" };
     try {
@@ -155,6 +173,13 @@ watch(
     if (props.modelValue) loadCard();
   },
   { immediate: true }
+);
+
+watch(
+  () => props.card?.content_json,
+  () => {
+    if (props.modelValue && props.card) loadCard();
+  }
 );
 
 watch(
@@ -176,7 +201,6 @@ function submit() {
     card_type: form.value.card_type,
     name: form.value.name,
     content_json: JSON.stringify(content, null, 2),
-    auto_update: form.value.auto_update,
   });
   visible.value = false;
   emit("close");
@@ -184,9 +208,20 @@ function submit() {
 </script>
 
 <style scoped>
-.hint {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.footer-left {
+  display: flex;
+  gap: 8px;
+}
+.footer-right {
+  display: flex;
+  gap: 8px;
 }
 </style>

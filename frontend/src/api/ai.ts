@@ -5,12 +5,12 @@ export interface GenerateParams {
   author_id: number | null;
   context: string;
   prompt: string;
+  web_search_enabled?: boolean;
 }
 
 export type StreamEvent =
   | { type: "delta"; text: string }
   | { type: "error"; message: string }
-  | { type: "card_updates"; payload: { updates: { card_id: number; text: string }[]; new_cards: { card_type: string; name: string; text: string; auto_update: boolean }[] } }
   | { type: "done" };
 
 export async function streamGenerate(

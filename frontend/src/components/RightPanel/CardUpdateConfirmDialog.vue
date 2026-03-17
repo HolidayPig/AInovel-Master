@@ -158,6 +158,7 @@ watch(
       next.push({
         key: `u-${u.card_id}`,
         kind: "update",
+        apply: true,
         card_id: u.card_id,
         card_type: card.card_type,
         name: card.name || "未命名",
@@ -171,6 +172,7 @@ watch(
       next.push({
         key: `n-${ct}-${n.name}`,
         kind: "new",
+        apply: true,
         card_type: ct,
         name: n.name || "未命名",
         oldText: "",
@@ -202,7 +204,6 @@ async function applyAndNext() {
     if (it.kind === "update" && it.card_id != null) {
       await store.updateCard(it.card_id, {
         content_json: JSON.stringify({ text }),
-        auto_update: true,
       });
       it.oldText = text;
     }
