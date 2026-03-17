@@ -37,7 +37,8 @@ async def generate_stream(
         a = author_result.scalar_one_or_none()
         if a:
             author = {"name": a.name, "style": a.style or "", "format_rules": a.format_rules or ""}
-    system_prompt = card_engine.build_system_prompt(cards, author=author)
+    relevant = card_engine.select_relevant_cards(cards, (body.context or "") + "\n" + (body.prompt or ""))
+    system_prompt = card_engine.build_system_prompt(relevant, author=author)
 
     user_content = ""
     if body.context.strip():

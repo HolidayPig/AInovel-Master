@@ -112,7 +112,17 @@ function handleDeleteCard(card: Card) {
 function cardPreview(card: Card): string {
   try {
     const o = JSON.parse(card.content_json || "{}");
-    const s = typeof o === "object" ? JSON.stringify(o) : String(o);
+    if (o && typeof o === "object") {
+      const text =
+        (o.text as string) ||
+        (o.description as string) ||
+        (o.rules as string) ||
+        (o.summary as string) ||
+        "";
+      const s = (text || JSON.stringify(o)).toString();
+      return s.slice(0, 80) + (s.length > 80 ? "..." : "");
+    }
+    const s = String(o ?? "");
     return s.slice(0, 80) + (s.length > 80 ? "..." : "");
   } catch {
     return card.content_json?.slice(0, 80) || "";

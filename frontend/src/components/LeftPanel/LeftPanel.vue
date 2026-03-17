@@ -258,7 +258,7 @@ async function onNovelCreated(payload: { title: string; description: string; wor
       novel_id: novel.id,
       card_type: "worldview",
       name: "世界观",
-      content_json: JSON.stringify({ description: payload.worldview }),
+      content_json: JSON.stringify({ text: payload.worldview }),
     });
   }
   if (novel) store.selectNovel(novel);

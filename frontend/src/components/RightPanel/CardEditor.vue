@@ -32,8 +32,8 @@
           <el-input
             v-model="formFields[f.key]"
             type="textarea"
-            :rows="f.key === 'backstory' || f.key === 'description' || f.key === 'summary' || f.key === 'rules' || f.key === 'text' ? 4 : 2"
-            :placeholder="f.label"
+            :rows="6"
+            :placeholder="placeholderText"
           />
         </el-form-item>
       </template>
@@ -94,6 +94,23 @@ const currentFields = computed(
   () => CARD_TYPE_FIELDS[form.value.card_type] || CARD_TYPE_FIELDS.custom
 );
 
+const placeholderText = computed(() => {
+  const t = form.value.card_type;
+  if (t === "character") {
+    return "请输入角色的详细描述：身份/背景/关系/动机/能力/口癖/外貌（可选）等。写作时会作为设定依据。";
+  }
+  if (t === "worldview") {
+    return "请输入世界观的详细描述：时代背景/地理/势力/超自然规则/关键设定等。";
+  }
+  if (t === "setting") {
+    return "请输入设定的详细描述：道具/组织/规则/限制/重要信息等。";
+  }
+  if (t === "plot") {
+    return "请输入剧情线的详细描述：阶段目标/关键事件/冲突/伏笔/走向等。";
+  }
+  return "请输入内容。你也可以在描述中写入关键词，便于 AI 续写时按需引用。";
+});
+
 function loadCard() {
   if (props.card) {
     form.value = {
@@ -103,9 +120,20 @@ function loadCard() {
     };
     try {
       const o = JSON.parse(props.card.content_json || "{}");
-      formFields.value = { ...o };
+      // v0.2.3+: unified text field; keep backward compatibility for old structured JSON
+      if (o && typeof o === "object") {
+        const text =
+          (o.text as string) ||
+          (o.description as string) ||
+          (o.rules as string) ||
+          (o.summary as string) ||
+          JSON.stringify(o, null, 2);
+        formFields.value = { text: (text || "").toString() };
+      } else {
+        formFields.value = { text: String(o ?? "") };
+      }
     } catch {
-      formFields.value = {};
+      formFields.value = { text: "" };
     }
   } else {
     form.value = {
@@ -113,7 +141,7 @@ function loadCard() {
       name: "",
       auto_update: false,
     };
-    formFields.value = {};
+    formFields.value = { text: "" };
     try {
       const o = JSON.parse(defaultContentJson("character"));
       for (const k of Object.keys(o)) formFields.value[k] = o[k];
