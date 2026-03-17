@@ -22,23 +22,94 @@
   box-shadow: 0 4px 20px rgba(64, 158, 255, 0.2) !important;
 }
 
-/* Button elastic press */
+/* iOS-style buttons: outline + frosted glass */
 .el-button {
-  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s ease !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s ease, background 0.2s ease !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+}
+.el-button:hover {
+  background: rgba(255, 255, 255, 0.75) !important;
+  border-color: rgba(0, 0, 0, 0.18) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
 }
 .el-button:active {
   transform: scale(0.96);
 }
+.el-button--primary {
+  border-color: rgba(64, 158, 255, 0.6) !important;
+  background: rgba(64, 158, 255, 0.5) !important;
+  color: #fff !important;
+}
+.el-button--primary:hover {
+  background: rgba(64, 158, 255, 0.7) !important;
+  border-color: var(--el-color-primary) !important;
+  color: #fff !important;
+}
+.el-button.is-link,
+.el-button--text {
+  border-color: transparent !important;
+  background: transparent !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.el-button.is-link:hover,
+.el-button--text:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+  border-radius: 8px;
+}
 
-/* Full-screen glass overlay for all dialogs */
+/* 加号按钮：圆形毛玻璃轮廓，保证在左右栏可见 */
+.el-button.add-btn {
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  border: 1px solid rgba(255, 255, 255, 0.65) !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  color: var(--el-color-primary) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06) !important;
+}
+.el-button.add-btn:hover {
+  background: rgba(255, 255, 255, 0.7) !important;
+  border-color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--el-color-primary) !important;
+}
+.el-button.add-btn .el-icon {
+  font-size: 16px;
+}
+/* 带文字的加号按钮：胶囊形毛玻璃 */
+.el-button.add-btn.add-btn-with-text {
+  width: auto !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  padding: 0 12px !important;
+  border-radius: 999px !important;
+  gap: 6px;
+}
+.el-button.add-btn.add-btn-with-text .el-icon {
+  font-size: 14px;
+}
+
+/* Full-screen glass overlay: lighter so background shows through */
 .el-overlay {
   position: fixed !important;
   inset: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
-  background: rgba(0, 0, 0, 0.18) !important;
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: rgba(0, 0, 0, 0.05) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   transition: opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 }
 .el-overlay.is-invisible {
@@ -54,7 +125,11 @@
 }
 .el-dialog {
   border-radius: 16px !important;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
   transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 }
 .el-dialog.is-align-center {

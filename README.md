@@ -2,6 +2,8 @@
 
 基于 Vue 3 + FastAPI + SQLite 的 AI 小说写作助手，支持三栏式编辑、角色/世界观卡片与 AI 续写。
 
+**当前版本：v0.2.2** · 更新日志见 [CHANGELOG.md](CHANGELOG.md)
+
 ## 本地开发 (Windows)
 
 详细步骤与常见问题见 **[Windows 本机调试指南](docs/Windows本地调试指南.md)**。

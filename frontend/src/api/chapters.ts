@@ -9,6 +9,8 @@ export function createChapter(data: {
   novel_id: number;
   title?: string;
   content?: string;
+  summary?: string | null;
+  target_words?: number | null;
   sort_order?: number;
 }) {
   return api.post<Chapter>("/chapters", data);
@@ -20,7 +22,7 @@ export function getChapter(id: number) {
 
 export function updateChapter(
   id: number,
-  data: { title?: string; content?: string; sort_order?: number }
+  data: { title?: string; content?: string; summary?: string | null; target_words?: number | null; sort_order?: number }
 ) {
   return api.patch<Chapter>(`/chapters/${id}`, data);
 }

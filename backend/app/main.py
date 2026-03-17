@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .database import init_db
-from .routers import novels, chapters, cards, settings, ai
+from .routers import novels, chapters, cards, settings, ai, authors
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.include_router(chapters.router, prefix="/api")
 app.include_router(cards.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(authors.router, prefix="/api")
 
 
 @app.get("/api/health")

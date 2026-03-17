@@ -53,19 +53,22 @@ onMounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--el-bg-color-page);
+  background: linear-gradient(160deg, var(--el-bg-color-page) 0%, var(--el-fill-color-light) 100%);
 }
 .app-header {
   height: 52px;
-  padding: 0 16px;
+  padding: 0 20px;
+  margin: 10px 12px 0;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--el-border-color-lighter);
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
 }
 .brand {
   display: flex;
@@ -85,16 +88,20 @@ onMounted(() => {
 .app-body {
   flex: 1;
   display: flex;
+  gap: 12px;
+  padding: 12px;
   min-height: 0;
 }
 .left-panel {
   width: 280px;
-  border-right: 1px solid var(--el-border-color-lighter);
-  overflow: auto;
+  border-radius: 16px;
+  overflow: hidden;
   flex-shrink: 0;
-  background: rgba(248, 249, 250, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(248, 249, 250, 0.35);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
 }
 .center-panel {
   flex: 1;
@@ -102,14 +109,22 @@ onMounted(() => {
   overflow: auto;
   display: flex;
   flex-direction: column;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.05);
 }
 .right-panel {
   width: 320px;
-  border-left: 1px solid var(--el-border-color-lighter);
-  overflow: auto;
+  border-radius: 16px;
+  overflow: hidden;
   flex-shrink: 0;
-  background: rgba(248, 249, 250, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(248, 249, 250, 0.35);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
 }
 </style>

@@ -23,6 +23,8 @@ async def create_chapter(data: ChapterCreate, db: AsyncSession = Depends(get_db)
         novel_id=data.novel_id,
         title=data.title,
         content=data.content,
+        summary=data.summary,
+        target_words=data.target_words,
         sort_order=data.sort_order,
     )
     db.add(chapter)
@@ -50,6 +52,10 @@ async def update_chapter(chapter_id: int, data: ChapterUpdate, db: AsyncSession 
         chapter.title = data.title
     if data.content is not None:
         chapter.content = data.content
+    if data.summary is not None:
+        chapter.summary = data.summary
+    if data.target_words is not None:
+        chapter.target_words = data.target_words
     if data.sort_order is not None:
         chapter.sort_order = data.sort_order
     await db.flush()

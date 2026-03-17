@@ -18,8 +18,12 @@ export const useNovelStore = defineStore("novel", () => {
     return res.data;
   }
 
-  async function createNovel(title?: string) {
-    const res = await novelApi.createNovel({ title: title || "未命名小说" });
+  async function createNovel(data?: string | { title?: string; description?: string }) {
+    const payload =
+      typeof data === "object"
+        ? { title: data.title || "未命名小说", description: data.description }
+        : { title: data || "未命名小说" };
+    const res = await novelApi.createNovel(payload);
     novels.value.unshift(res.data);
     return res.data;
   }
@@ -64,14 +68,26 @@ export const useNovelStore = defineStore("novel", () => {
     return res.data;
   }
 
-  async function createChapter(title?: string) {
+  async function createChapter(
+    data?: string | { title?: string; summary?: string; target_words?: number }
+  ) {
     if (!currentNovel.value) return null;
     const sortOrder = chapters.value.length;
-    const res = await chapterApi.createChapter({
-      novel_id: currentNovel.value.id,
-      title: title || "未命名章节",
-      sort_order: sortOrder,
-    });
+    const payload =
+      typeof data === "object"
+        ? {
+            novel_id: currentNovel.value.id,
+            title: data.title || "未命名章节",
+            summary: data.summary || null,
+            target_words: data.target_words ?? null,
+            sort_order: sortOrder,
+          }
+        : {
+            novel_id: currentNovel.value.id,
+            title: data || "未命名章节",
+            sort_order: sortOrder,
+          };
+    const res = await chapterApi.createChapter(payload);
     chapters.value.push(res.data);
     return res.data;
   }
@@ -83,7 +99,7 @@ export const useNovelStore = defineStore("novel", () => {
 
   async function updateChapter(
     id: number,
-    data: { title?: string; content?: string; sort_order?: number }
+    data: { title?: string; content?: string; summary?: string | null; target_words?: number | null; sort_order?: number }
   ) {
     const res = await chapterApi.updateChapter(id, data);
     const idx = chapters.value.findIndex((c) => c.id === id);

@@ -2,6 +2,7 @@ export interface GenerateParams {
   settings_id: number;
   novel_id: number;
   chapter_id: number | null;
+  author_id: number | null;
   context: string;
   prompt: string;
 }

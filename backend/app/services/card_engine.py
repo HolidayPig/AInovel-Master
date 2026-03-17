@@ -68,12 +68,21 @@ async def extract_and_update_cards(
         pass
 
 
-def build_system_prompt(cards: list[Card]) -> str:
-    """Build system prompt with novel context from cards."""
+def build_system_prompt(cards: list[Card], author: Any = None) -> str:
+    """Build system prompt with novel context from cards and optional author style."""
     parts = [
         "你是一位小说写作助手。请根据用户提供的上文与续写提示，用流畅的中文续写小说内容。",
         "只输出续写正文，不要解释或元评论。",
     ]
+    if author:
+        parts.append("\n【你当前扮演的小说家风格（请严格遵循）】")
+        if author.get("name"):
+            parts.append(f"- 小说家类型：{author['name']}")
+        if author.get("style"):
+            parts.append(f"- 编写风格：{author['style']}")
+        if author.get("format_rules"):
+            parts.append(f"- 排版方式：{author['format_rules']}")
+        parts.append("")
     if cards:
         parts.append("\n【当前小说的设定与角色（写作时请严格参照）】")
         for c in cards:

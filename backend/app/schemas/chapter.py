@@ -6,12 +6,16 @@ class ChapterCreate(BaseModel):
     novel_id: int
     title: str = "未命名章节"
     content: str = ""
+    summary: str | None = None
+    target_words: int | None = None
     sort_order: int = 0
 
 
 class ChapterUpdate(BaseModel):
     title: str | None = None
     content: str | None = None
+    summary: str | None = None
+    target_words: int | None = None
     sort_order: int | None = None
 
 
@@ -20,6 +24,8 @@ class ChapterResponse(BaseModel):
     novel_id: int
     title: str
     content: str
+    summary: str | None
+    target_words: int | None
     sort_order: int
     created_at: datetime
     updated_at: datetime

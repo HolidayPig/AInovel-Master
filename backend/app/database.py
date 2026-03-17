@@ -1,5 +1,6 @@
 """Database connection and session configuration."""
 import os
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -27,6 +28,21 @@ async def get_db():
             await session.close()
 
 
+async def _migrate_chapters_columns(conn):
+    """Add summary/target_words to chapters if missing (v0.2.1)."""
+    result = await conn.execute(text("PRAGMA table_info(chapters)"))
+    rows = result.fetchall()
+    if not rows:
+        return
+    names = {row[1] for row in rows}
+    if "summary" not in names:
+        await conn.execute(text("ALTER TABLE chapters ADD COLUMN summary TEXT"))
+    if "target_words" not in names:
+        await conn.execute(text("ALTER TABLE chapters ADD COLUMN target_words INTEGER"))
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    async with engine.begin() as conn:
+        await _migrate_chapters_columns(conn)

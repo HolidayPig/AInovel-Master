@@ -11,6 +11,8 @@ export interface Chapter {
   novel_id: number;
   title: string;
   content: string;
+  summary: string | null;
+  target_words: number | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -36,6 +38,16 @@ export interface Settings {
   proxy_url: string | null;
   web_search_enabled: boolean;
   extra_config_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Author {
+  id: number;
+  name: string;
+  style: string;
+  format_rules: string;
+  extra_json: string;
   created_at: string;
   updated_at: string;
 }

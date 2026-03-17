@@ -4,7 +4,7 @@
     <template v-else>
       <div class="section-header row">
         <span>小说属性卡片</span>
-        <el-button type="primary" link @click="openEditor(null)">
+        <el-button type="primary" link class="add-btn add-btn-with-text" @click="openEditor(null)">
           <el-icon><Plus /></el-icon>
           新建
         </el-button>
@@ -150,17 +150,22 @@ function cardPreview(card: Card): string {
   gap: 10px;
 }
 .card-item {
-  padding: 10px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 14px;
   font-size: 13px;
   cursor: pointer;
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s cubic-bezier(0.2, 0, 0, 1);
 }
 .card-item:hover {
-  border-color: var(--el-color-primary-light-5);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  border-color: rgba(64, 158, 255, 0.4);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   transform: translateX(-2px);
+  background: rgba(255, 255, 255, 0.55);
 }
 .card-head {
   margin-bottom: 4px;
