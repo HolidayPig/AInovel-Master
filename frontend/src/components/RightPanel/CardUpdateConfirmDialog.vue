@@ -8,28 +8,28 @@
     align-center
   >
     <div class="sub-title">
-      AI 已根据最新正文生成了卡片更新建议。你可以查看新旧对比、编辑新内容，然后选择「覆盖」或「保留」。
+      AI 已根据最新正文生成了卡片更新建议。请逐条确认：你可以查看新旧对比、编辑新内容，然后选择「覆盖/新增」或「保留」。
     </div>
 
     <div v-if="items.length" class="list">
-      <div v-for="it in items" :key="it.key" class="item">
+      <div class="item">
         <div class="item-head">
           <div class="item-title">
-            <span class="name">{{ it.name }}</span>
-            <span class="meta">{{ typeLabel(it.card_type) }}</span>
-            <span v-if="it.kind === 'new'" class="badge">新卡片</span>
-            <span v-else class="badge badge-muted">更新</span>
+            <span class="step">{{ currentIndex + 1 }}/{{ items.length }}</span>
+            <span class="name">{{ currentItem.name }}</span>
+            <span class="meta">{{ typeLabel(currentItem.card_type) }}</span>
+            <span v-if="currentItem.kind === 'new'" class="badge">新增卡片</span>
+            <span v-else class="badge badge-muted">更新卡片</span>
           </div>
-          <el-switch v-model="it.apply" active-text="覆盖" inactive-text="保留" />
         </div>
 
         <div class="diff">
           <div class="col">
-            <div class="col-title">当前内容</div>
+            <div class="col-title">{{ currentItem.kind === "new" ? "当前内容（无）" : "当前内容" }}</div>
             <el-input
-              v-model="it.oldText"
+              v-model="currentItem.oldText"
               type="textarea"
-              :rows="6"
+              :rows="7"
               readonly
               placeholder="（空）"
             />
@@ -37,10 +37,10 @@
           <div class="col">
             <div class="col-title">建议内容（可编辑）</div>
             <el-input
-              v-model="it.newText"
+              v-model="currentItem.newText"
               type="textarea"
-              :rows="6"
-              :placeholder="placeholderByType(it.card_type)"
+              :rows="7"
+              :placeholder="placeholderByType(currentItem.card_type)"
             />
           </div>
         </div>
@@ -50,11 +50,18 @@
 
     <template #footer>
       <div class="footer">
-        <el-button @click="applyAll(true)">全部覆盖</el-button>
-        <el-button @click="applyAll(false)">全部保留</el-button>
+        <el-button :disabled="!items.length || currentIndex === 0" @click="prev">上一条</el-button>
+        <el-button :disabled="!items.length" :loading="saving" @click="keepAndNext">保留</el-button>
+        <el-button
+          type="primary"
+          :disabled="!items.length"
+          :loading="saving"
+          @click="applyAndNext"
+        >
+          {{ currentItem?.kind === "new" ? "新增" : "覆盖" }}
+        </el-button>
         <div class="spacer" />
-        <el-button @click="visible = false">关闭</el-button>
-        <el-button type="primary" :loading="saving" @click="save">应用所选</el-button>
+        <el-button @click="visible = false">稍后再说</el-button>
       </div>
     </template>
   </el-dialog>
@@ -97,6 +104,8 @@ const emit = defineEmits<{
 const store = useNovelStore();
 const saving = ref(false);
 const items = ref<Item[]>([]);
+const currentIndex = ref(0);
+const currentItem = computed(() => items.value[currentIndex.value]);
 
 const visible = computed({
   get: () => props.modelValue,
@@ -134,8 +143,8 @@ function placeholderByType(t: CardType) {
   return "请输入内容";
 }
 
-function applyAll(v: boolean) {
-  for (const it of items.value) it.apply = v;
+function resetIndex() {
+  currentIndex.value = 0;
 }
 
 watch(
@@ -149,7 +158,6 @@ watch(
       next.push({
         key: `u-${u.card_id}`,
         kind: "update",
-        apply: true,
         card_id: u.card_id,
         card_type: card.card_type,
         name: card.name || "未命名",
@@ -163,7 +171,6 @@ watch(
       next.push({
         key: `n-${ct}-${n.name}`,
         kind: "new",
-        apply: true,
         card_type: ct,
         name: n.name || "未命名",
         oldText: "",
@@ -172,44 +179,63 @@ watch(
       });
     }
     items.value = next;
+    resetIndex();
   },
   { deep: true }
 );
 
-async function save() {
+function prev() {
+  if (currentIndex.value > 0) currentIndex.value -= 1;
+}
+
+async function applyAndNext() {
   if (!store.currentNovel) return;
-  const toApply = items.value.filter((i) => i.apply && i.newText.trim());
-  if (!toApply.length) {
-    visible.value = false;
+  const it = currentItem.value;
+  if (!it) return;
+  const text = (it.newText || "").trim();
+  if (!text) {
+    ElMessage.warning("建议内容为空，请先填写后再覆盖/新增");
     return;
   }
   saving.value = true;
   try {
-    for (const it of toApply) {
-      if (it.kind === "update" && it.card_id != null) {
-        await store.updateCard(it.card_id, {
-          content_json: JSON.stringify({ text: it.newText.trim() }),
-          auto_update: true,
-        });
-      }
-      if (it.kind === "new") {
-        await store.createCard({
-          novel_id: store.currentNovel.id,
-          card_type: it.card_type,
-          name: it.name,
-          content_json: JSON.stringify({ text: it.newText.trim() }),
-          auto_update: it.auto_update,
-        });
-      }
+    if (it.kind === "update" && it.card_id != null) {
+      await store.updateCard(it.card_id, {
+        content_json: JSON.stringify({ text }),
+        auto_update: true,
+      });
+      it.oldText = text;
     }
-    ElMessage.success("已应用卡片更新");
-    emit("applied");
-    visible.value = false;
+    if (it.kind === "new") {
+      await store.createCard({
+        novel_id: store.currentNovel.id,
+        card_type: it.card_type,
+        name: it.name,
+        content_json: JSON.stringify({ text }),
+        auto_update: it.auto_update,
+      });
+      it.oldText = text;
+    }
+    await nextOrFinish();
   } catch (e) {
     ElMessage.error(String(e));
   } finally {
     saving.value = false;
   }
+}
+
+async function keepAndNext() {
+  await nextOrFinish();
+}
+
+async function nextOrFinish() {
+  if (currentIndex.value < items.value.length - 1) {
+    currentIndex.value += 1;
+    return;
+  }
+  ElMessage.success("卡片确认已完成");
+  emit("applied");
+  visible.value = false;
 }
 </script>
 
@@ -245,6 +271,15 @@ async function save() {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.step {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.5);
 }
 .name {
   font-weight: 600;
