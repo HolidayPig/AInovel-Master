@@ -1,0 +1,11 @@
+services:
+  ainovel:
+    build: .
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATA_DIR=/app/data
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}

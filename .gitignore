@@ -1,0 +1,33 @@
+# Dependencies
+frontend/node_modules/
+
+# Python
+backend/__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Data & DB (optional: remove data/ if you want to track DB)
+data/
+
+# Env & secrets
+.env
+.env.local
+*.local
+
+# Build & cache
+frontend/dist/
+*.log
+.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

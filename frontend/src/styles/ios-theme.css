@@ -1,0 +1,69 @@
+/* iOS-style overrides: rounded corners, soft shadows, elastic interactions */
+
+:root {
+  --el-border-radius-base: 12px;
+  --el-border-radius-small: 10px;
+  --el-border-radius-large: 16px;
+}
+
+/* Soft shadows for inputs and cards */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select .el-select__wrapper {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
+  transition: box-shadow 0.2s ease, transform 0.1s cubic-bezier(0.2, 0, 0, 1);
+}
+.el-input__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+}
+.el-input__wrapper:focus-within,
+.el-textarea__inner:focus-within {
+  box-shadow: 0 4px 20px rgba(64, 158, 255, 0.2) !important;
+}
+
+/* Button elastic press */
+.el-button {
+  transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s ease !important;
+}
+.el-button:active {
+  transform: scale(0.96);
+}
+
+/* Full-screen glass overlay for all dialogs */
+.el-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  transition: opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.el-overlay.is-invisible {
+  opacity: 0;
+}
+.el-overlay-dialog {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+}
+.el-dialog {
+  border-radius: 16px !important;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12) !important;
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.el-dialog.is-align-center {
+  margin: 0 !important;
+}
+
+/* Dropdown / popover */
+.el-select-dropdown,
+.el-popper {
+  border-radius: 12px !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1) !important;
+}
