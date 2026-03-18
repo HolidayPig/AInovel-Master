@@ -67,13 +67,13 @@
             Outline
           </el-button>
           <el-button
-            class="panel-pill"
+            class="panel-pill panel-pill--compact"
             :disabled="!store.currentNovel || !store.chapters.length || generatingBook"
             title="按顺序生成所有章节正文"
             @click="handleGenerateBook"
           >
             <el-icon><MagicStick /></el-icon>
-            全书生成
+            Book
           </el-button>
           <el-button
             class="panel-icon-btn"
@@ -583,8 +583,21 @@ async function onChapterDrop(e: DragEvent) {
 .section-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.section-header-actions :deep(.el-button) {
+  margin-left: 0 !important;
+}
+.section-header-actions :deep(.el-button + .el-button) {
+  margin-left: 0 !important;
+}
+.section-header-actions :deep(.el-button.panel-pill--compact) {
+  padding: 0 10px !important;
+  font-size: 12px !important;
+  letter-spacing: 0.01em;
 }
 .section-frame {
   border: 1px solid rgba(255, 255, 255, 0.6);
