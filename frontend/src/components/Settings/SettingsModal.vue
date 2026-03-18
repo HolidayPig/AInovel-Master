@@ -46,7 +46,15 @@
           placeholder="如 http://127.0.0.1:7890（Clash 等）"
         />
       </el-form-item>
-      <!-- 联网搜索已移至输入框工具栏，由用户每次发送时决定 -->
+      <el-form-item label="联网工具">
+        <el-switch
+          v-model="form.supports_web_search"
+          inline-prompt
+          active-text="支持"
+          inactive-text="不支持"
+        />
+        <span class="form-hint">仅表示“该模型/接口支持联网工具”，实际是否联网由发送时开关决定</span>
+      </el-form-item>
       <el-form-item v-if="form.provider === 'custom'" label="自定义 Base URL">
         <el-input
           v-model="form.base_url"
@@ -82,6 +90,7 @@ const form = ref({
   model_name: "gpt-4o-mini",
   proxy_url: "" as string | null,
   base_url: "",
+  supports_web_search: false,
 });
 const saving = ref(false);
 
@@ -97,7 +106,7 @@ function providerLabel(p: string) {
 }
 
 function syncFormFromSettings() {
-  const cur = selectedId.value != null && settingsStore.list.find((s) => s.id === selectedId.value!);
+  const cur = selectedId.value != null ? settingsStore.list.find((s) => s.id === selectedId.value!) ?? null : null;
   if (cur) {
     form.value = {
       provider: cur.provider,
@@ -105,11 +114,13 @@ function syncFormFromSettings() {
       model_name: cur.model_name || "",
       proxy_url: cur.proxy_url ?? "",
       base_url: "",
+      supports_web_search: false,
     };
     if (cur.extra_config_json) {
       try {
         const o = JSON.parse(cur.extra_config_json);
         form.value.base_url = o.base_url || "";
+        form.value.supports_web_search = !!(o.supports_web_search ?? o.web_search_supported ?? o.enable_web_search);
       } catch {}
     }
   }
@@ -136,9 +147,24 @@ async function handleSave() {
       proxy_url: form.value.proxy_url || null,
     };
     if (form.value.api_key_encrypted) payload.api_key_encrypted = form.value.api_key_encrypted;
-    if (form.value.provider === "custom" && form.value.base_url) {
-      payload.extra_config_json = JSON.stringify({ base_url: form.value.base_url });
+    // extra_config_json: keep existing keys and merge user edits
+    let extra: Record<string, unknown> = {};
+    const cur = selectedId.value != null ? settingsStore.list.find((s) => s.id === selectedId.value!) ?? null : null;
+    if (cur?.extra_config_json) {
+      try {
+        const o = JSON.parse(cur.extra_config_json);
+        if (o && typeof o === "object") extra = { ...(o as Record<string, unknown>) };
+      } catch {}
     }
+    if (form.value.provider === "custom") {
+      if (form.value.base_url) extra.base_url = form.value.base_url;
+      else delete extra.base_url;
+    } else {
+      // non-custom: don't carry base_url accidentally
+      delete extra.base_url;
+    }
+    extra.supports_web_search = !!form.value.supports_web_search;
+    payload.extra_config_json = JSON.stringify(extra);
     await settingsStore.updateSettings(selectedId.value, payload);
     ElMessage.success("已保存");
     dialogVisible.value = false;

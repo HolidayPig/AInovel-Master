@@ -4,10 +4,16 @@
     <template v-else>
       <div class="section-header row">
         <span>小说属性卡片</span>
-        <el-button type="primary" link class="add-btn add-btn-with-text" @click="openEditor(null)">
-          <el-icon><Plus /></el-icon>
-          新建
-        </el-button>
+        <div class="header-actions">
+          <el-button class="panel-pill" title="从当前章节引入卡片" @click="openIntroDialog">
+            <el-icon><Upload /></el-icon>
+            Import
+          </el-button>
+          <el-button class="panel-pill panel-pill--primary" @click="openEditor(null)">
+            <el-icon><Plus /></el-icon>
+            New
+          </el-button>
+        </div>
       </div>
       <el-tabs v-model="activeTab">
         <el-tab-pane label="角色" name="character" />
@@ -34,15 +40,27 @@
             </div>
             <div class="card-preview">{{ cardPreview(card) }}</div>
             <div class="card-actions">
-              <el-button type="primary" link size="small" :loading="updatingCardId === card.id" @click.stop="handleCardUpdate(card)">
-                更新
+              <el-button
+                class="card-act"
+                size="small"
+                :loading="updatingCardId === card.id"
+                @click.stop="handleCardUpdate(card)"
+              >
+                <el-icon><Refresh /></el-icon>
+                Sync
               </el-button>
-              <el-button type="primary" link size="small" :loading="searchingCardId === card.id" @click.stop="handleSearchOnline(card)">
-                联网查询
+              <el-button
+                class="card-act card-act--web"
+                size="small"
+                :loading="searchingCardId === card.id"
+                @click.stop="handleSearchOnline(card)"
+              >
+                <el-icon><Search /></el-icon>
+                Web
               </el-button>
             </div>
           </div>
-          <div v-if="!filteredCards.length" class="empty">暂无卡片，点击「新建」添加</div>
+          <div v-if="!filteredCards.length" class="empty">暂无卡片，点击 New 添加</div>
         </div>
       </el-scrollbar>
       <div class="panel-footer">
@@ -52,11 +70,19 @@
           :disabled="!filteredCards.length"
           @click="handleRefreshAll"
         >
-          一键更新
+          <el-icon class="footer-icon"><RefreshRight /></el-icon>
+          Refresh all
         </el-button>
       </div>
     </template>
 
+    <CardIntroDialog
+      v-model="introVisible"
+      :novel-id="store.currentNovel?.id ?? 0"
+      :chapter-id="store.currentChapter?.id ?? 0"
+      :settings-id="getSettingsId() ?? 0"
+      @added="onCardsApplied"
+    />
     <CardUpdateConfirmDialog
       v-model="cardUpdateVisible"
       :payload="cardUpdatePayload"
@@ -77,16 +103,19 @@
 
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { Plus, Delete } from "@element-plus/icons-vue";
+import { Plus, Delete, Upload, Refresh, Search, RefreshRight } from "@element-plus/icons-vue";
 import type { Card } from "@/types";
 import { useNovelStore } from "@/stores/novel";
 import { useSettingsStore } from "@/stores/settings";
 import { ElMessage, ElMessageBox } from "element-plus";
 import CardEditor from "./CardEditor.vue";
+import CardIntroDialog from "./CardIntroDialog.vue";
 import CardUpdateConfirmDialog from "./CardUpdateConfirmDialog.vue";
 import * as cardApi from "@/api/cards";
+import { useAiProgressStore } from "@/stores/aiProgress";
 
 const store = useNovelStore();
+const aiProgress = useAiProgressStore();
 const settingsStore = useSettingsStore();
 const activeTab = ref("all");
 const editorVisible = ref(false);
@@ -94,6 +123,7 @@ const editingCard = ref<Card | null>(null);
 const refreshingAll = ref(false);
 const updatingCardId = ref<number | null>(null);
 const searchingCardId = ref<number | null>(null);
+const introVisible = ref(false);
 const cardUpdateVisible = ref(false);
 const cardUpdatePayload = ref<{
   updates: { card_id: number; text: string }[];
@@ -148,6 +178,22 @@ function getSettingsId(): number | null {
   return settingsStore.currentId ?? settingsStore.current()?.id ?? null;
 }
 
+function openIntroDialog() {
+  if (!store.currentNovel) {
+    ElMessage.warning("请先选择小说");
+    return;
+  }
+  if (!store.currentChapter) {
+    ElMessage.warning("请先在左侧选择当前章节，引入将分析该章正文");
+    return;
+  }
+  if (!getSettingsId()) {
+    ElMessage.warning("请先在设置中配置 API Key 和模型");
+    return;
+  }
+  introVisible.value = true;
+}
+
 async function handleRefreshAll() {
   const novel = store.currentNovel;
   const settingsId = getSettingsId();
@@ -156,11 +202,19 @@ async function handleRefreshAll() {
     return;
   }
   refreshingAll.value = true;
+  const n = filteredCards.value.length;
+  aiProgress.start("一键更新卡片", {
+    phase: "processing",
+    detail: `正在根据小说正文批量刷新 ${n} 张卡片的描述，请稍候…`,
+  });
   try {
     const res = await cardApi.refreshAllCards(novel.id, settingsId);
     await store.fetchCards();
+    aiProgress.setDetail(`已完成 ${res.data.updated} 张卡片的描述更新。`);
+    aiProgress.finishSuccess(650);
     ElMessage.success(`已更新 ${res.data.updated} 张卡片`);
   } catch (e) {
+    aiProgress.finishError();
     ElMessage.error(String(e));
   } finally {
     refreshingAll.value = false;
@@ -175,14 +229,21 @@ async function handleCardUpdate(card: Card) {
     return;
   }
   updatingCardId.value = card.id;
+  aiProgress.start("更新卡片", {
+    phase: "processing",
+    detail: `正在结合小说正文为「${card.name || "未命名"}」生成新的卡片描述…`,
+  });
   try {
     const res = await cardApi.refreshOneCardSuggestion(card.id, novel.id, settingsId);
+    aiProgress.setDetail("已生成建议描述，请在确认弹窗中查看。");
+    aiProgress.finishSuccess(550);
     cardUpdatePayload.value = {
       updates: [{ card_id: card.id, text: res.data.new_text }],
       new_cards: [],
     };
     cardUpdateVisible.value = true;
   } catch (e) {
+    aiProgress.finishError();
     ElMessage.error(String(e));
   } finally {
     updatingCardId.value = null;
@@ -208,14 +269,21 @@ async function handleSearchOnline(card: Card) {
     return;
   }
   searchingCardId.value = card.id;
+  aiProgress.start("联网查询", {
+    phase: "querying",
+    detail: `正在联网检索与「${card.name || "该卡片"}」相关的资料并整理为描述…`,
+  });
   try {
     const res = await cardApi.searchOnlineCard(card.id, settingsId);
+    aiProgress.setDetail("检索完成，请在确认弹窗中查看合并后的描述。");
+    aiProgress.finishSuccess(550);
     cardUpdatePayload.value = {
       updates: [{ card_id: card.id, text: res.data.new_text }],
       new_cards: [],
     };
     cardUpdateVisible.value = true;
   } catch (e) {
+    aiProgress.finishError();
     ElMessage.error(String(e));
   } finally {
     searchingCardId.value = null;
@@ -262,6 +330,11 @@ function cardPreview(card: Card): string {
 .section-header {
   font-weight: 600;
   margin-bottom: 8px;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .card-list-scroll {
   flex: 1;
@@ -317,9 +390,10 @@ function cardPreview(card: Card): string {
   padding: 16px;
 }
 .card-actions {
-  margin-top: 6px;
+  margin-top: 8px;
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .panel-footer {
   flex-shrink: 0;
@@ -328,5 +402,12 @@ function cardPreview(card: Card): string {
 }
 .panel-footer .el-button {
   width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.footer-icon {
+  font-size: 16px;
 }
 </style>

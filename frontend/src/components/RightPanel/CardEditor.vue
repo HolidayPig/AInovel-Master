@@ -43,18 +43,22 @@
         <div class="footer-left">
           <template v-if="isEdit">
             <el-button
+              class="card-act"
               size="small"
               :loading="props.updating"
               @click="emit('requestUpdate')"
             >
-              更新
+              <el-icon><Refresh /></el-icon>
+              Sync
             </el-button>
             <el-button
+              class="card-act card-act--web"
               size="small"
               :loading="props.searching"
               @click="emit('requestSearchOnline')"
             >
-              联网查询
+              <el-icon><Search /></el-icon>
+              Web
             </el-button>
           </template>
         </div>
@@ -69,6 +73,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
+import { Refresh, Search } from "@element-plus/icons-vue";
 import { CARD_TYPE_LABELS, CARD_TYPE_FIELDS, defaultContentJson } from "@/constants/cards";
 import type { Card, CardType } from "@/types";
 

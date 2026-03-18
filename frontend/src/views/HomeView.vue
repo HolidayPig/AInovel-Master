@@ -11,7 +11,10 @@
         />
         <span class="title">AI 小说助手</span>
       </div>
-      <el-button type="primary" @click="settingsVisible = true">设置</el-button>
+      <el-button type="primary" class="header-settings" @click="settingsVisible = true">
+        <el-icon><Setting /></el-icon>
+        Settings
+      </el-button>
     </header>
     <div class="app-body">
       <aside class="left-panel">
@@ -25,15 +28,18 @@
       </aside>
     </div>
     <SettingsModal v-model:visible="settingsVisible" />
+    <GlobalAiProgress />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
+import { Setting } from "@element-plus/icons-vue";
 import LeftPanel from "@/components/LeftPanel/LeftPanel.vue";
 import CenterPanel from "@/components/CenterPanel/CenterPanel.vue";
 import RightPanel from "@/components/RightPanel/RightPanel.vue";
 import SettingsModal from "@/components/Settings/SettingsModal.vue";
+import GlobalAiProgress from "@/components/common/GlobalAiProgress.vue";
 import { useNovelStore } from "@/stores/novel";
 import { useSettingsStore } from "@/stores/settings";
 
@@ -85,6 +91,13 @@ onMounted(() => {
   font-size: 18px;
   font-weight: 600;
 }
+.header-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px !important;
+  border-radius: 999px !important;
+}
 .app-body {
   flex: 1;
   display: flex;
@@ -97,11 +110,15 @@ onMounted(() => {
   border-radius: 16px;
   overflow: hidden;
   flex-shrink: 0;
-  background: rgba(248, 249, 250, 0.35);
+  background: rgba(255, 255, 255, 0.52);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.left-panel:hover {
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.08);
 }
 .center-panel {
   flex: 1;
@@ -110,21 +127,26 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 4px 28px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s ease;
 }
 .right-panel {
   width: 320px;
   border-radius: 16px;
   overflow: hidden;
   flex-shrink: 0;
-  background: rgba(248, 249, 250, 0.35);
+  background: rgba(255, 255, 255, 0.52);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.right-panel:hover {
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.08);
 }
 </style>

@@ -89,6 +89,7 @@ async def complete_xai_responses(
     messages: list[dict],
     proxy_url: str | None = None,
     web_search_enabled: bool = False,
+    read_timeout: float = 180.0,
 ) -> str:
     """One-shot completion via xAI Responses API (/v1/responses)."""
     url = f"{base_url.rstrip('/')}/responses"
@@ -96,7 +97,9 @@ async def complete_xai_responses(
     body: dict = {"model": model, "input": messages}
     if web_search_enabled:
         body["tools"] = [{"type": "web_search"}]
-    async with httpx.AsyncClient(proxy=proxy_url, timeout=httpx.Timeout(180.0)) as client:
+    async with httpx.AsyncClient(
+        proxy=proxy_url, timeout=_http_timeout(read_seconds=max(float(read_timeout), 180.0))
+    ) as client:
         r = await client.post(url, json=body, headers=headers)
         if r.status_code != 200:
             raise RuntimeError(f"API error {r.status_code}: {r.text}")
@@ -248,6 +251,11 @@ async def stream_anthropic(
                     continue
 
 
+def _http_timeout(*, read_seconds: float) -> httpx.Timeout:
+    """连接/写池适度超时，读取单独放宽（长文本生成易超 30s～90s）。"""
+    return httpx.Timeout(connect=60.0, read=read_seconds, write=120.0, pool=120.0)
+
+
 async def complete(
     *,
     provider: str,
@@ -258,24 +266,29 @@ async def complete(
     proxy_url: str | None = None,
     extra_config_json: str = "{}",
     web_search_enabled: bool = False,
+    max_tokens: int | None = None,
+    read_timeout: float | None = None,
 ) -> str:
-    """One-shot completion (no stream). Used e.g. for card extraction. Supports web_search for OpenAI-compatible APIs."""
+    """One-shot completion。read_timeout 为等待模型完整响应的最长时间（秒），大纲生成建议 300～600。"""
     base_url = _get_base_url(provider, extra_config_json) or "https://api.openai.com/v1"
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": user_content})
 
+    read_s = float(read_timeout) if read_timeout is not None else 180.0
+
     if provider == "anthropic":
         url = "https://api.anthropic.com/v1/messages"
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+        mt = min(max(max_tokens or 4096, 256), 8192)
         body = {
             "model": model,
-            "max_tokens": 4096,
+            "max_tokens": mt,
             "system": system_prompt or "You are a helpful assistant.",
             "messages": [{"role": "user", "content": user_content}],
         }
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=httpx.Timeout(60.0)) as client:
+        async with httpx.AsyncClient(proxy=proxy_url, timeout=_http_timeout(read_seconds=max(read_s, 180.0))) as client:
             r = await client.post(url, json=body, headers=headers)
             r.raise_for_status()
             data = r.json()
@@ -287,6 +300,8 @@ async def complete(
         url = f"{base_url.rstrip('/')}/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         body: dict = {"model": model, "messages": messages}
+        if max_tokens is not None:
+            body["max_tokens"] = min(max(max_tokens, 256), 16384)
         # xAI: live_search on chat/completions is deprecated (410). Use Responses API tools instead.
         if web_search_enabled and _is_xai_base_url(base_url):
             return await complete_xai_responses(
@@ -296,6 +311,7 @@ async def complete(
                 messages=messages,
                 proxy_url=proxy_url,
                 web_search_enabled=True,
+                read_timeout=read_s,
             )
 
         tools_variants: list[list[dict]] = [
@@ -303,7 +319,9 @@ async def complete(
             [{"type": "live_search", "sources": [{"type": "web"}]}],
             [{"type": "live_search", "sources": ["internet"]}],
         ]
-        async with httpx.AsyncClient(proxy=proxy_url, timeout=httpx.Timeout(90.0)) as client:
+        async with httpx.AsyncClient(
+            proxy=proxy_url, timeout=_http_timeout(read_seconds=max(read_s, 180.0))
+        ) as client:
             last_err: Exception | None = None
             tries = len(tools_variants) if web_search_enabled else 1
             for i in range(tries):

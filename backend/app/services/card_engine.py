@@ -19,6 +19,30 @@ def _strip_html(html: str) -> str:
     return text
 
 
+def _chapter_plain_text(html: str) -> str:
+    """Chapter body to plain text with line breaks for AI."""
+    if not html or not isinstance(html, str):
+        return ""
+    t = re.sub(r"</p\s*>", "\n", html, flags=re.I)
+    t = re.sub(r"<br\s*/?>", "\n", t, flags=re.I)
+    t = re.sub(r"<[^>]+>", "", t)
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
+# 卡片描述统一结构：便于续写模型理解与遵循
+CARD_DESC_FORMAT_INSTRUCTION = (
+    "请用以下固定结构输出描述（必须包含四个标题行，冒号后为内容；每条要点单独一行以「- 」开头）：\n"
+    "【定位】一句话说明该元素在故事中的作用\n"
+    "【要点】\n"
+    "- 关键事实1\n"
+    "- 关键事实2\n"
+    "【关系】与其他角色/势力/设定的关系（无则写「无」）\n"
+    "【写作提示】续写时需注意的口吻、禁忌或伏笔等（1-3条，可分行）\n"
+    "不要输出 JSON、不要加卡片名称作大标题。"
+)
+
+
 def _normalize_text(s: str) -> str:
     return re.sub(r"\s+", "", (s or "").strip())
 
@@ -288,11 +312,10 @@ async def refresh_all_cards(novel_id: int, settings_id: int, db: AsyncSession) -
         return 0
     prompt = (
         "以下是一部小说的最新正文与设定信息。请根据正文，为下面列出的每个卡片重新提炼并输出更新后的【详细描述】文本。\n"
-        "你只输出一个 JSON 对象：\n"
-        "{\n"
-        '  "updates": [ {"card_id": 1, "text": "..."}, ... ]\n'
-        "}\n"
-        "规则：为每个 card_id 输出一条更新；text 为根据小说内容提炼后的完整描述，不要解释。除 JSON 外不要输出任何文字。\n\n"
+        + CARD_DESC_FORMAT_INSTRUCTION
+        + "\n你只输出一个 JSON 对象：\n{\n"
+        '  "updates": [ {"card_id": 1, "text": "..."}, ... ]\n}\n'
+        "规则：为每个 card_id 输出一条更新；text 内必须按上述四段结构写满。除 JSON 外不要输出任何文字。\n\n"
         "【小说正文】\n" + full_text[-12000:] + "\n\n【待更新卡片】\n"
     )
     for c in cards:
@@ -351,8 +374,8 @@ async def refresh_one_card_suggestion(
     old_text = _extract_card_text(card)
     prompt = (
         "以下是一部小说的最新正文。请根据正文，仅针对下面这一张卡片，重新提炼并输出更新后的【详细描述】文本。\n"
-        "只输出一段完整描述正文，不要 JSON、不要解释、不要卡片名称。\n\n"
-        "【小说正文】\n" + full_text[-8000:] + "\n\n"
+        + CARD_DESC_FORMAT_INSTRUCTION
+        + "\n\n【小说正文】\n" + full_text[-8000:] + "\n\n"
         f"【当前卡片】name={card.name} type={card.card_type}\n当前内容：\n{old_text}\n\n请输出更新后的描述："
     )
     try:
@@ -360,7 +383,7 @@ async def refresh_one_card_suggestion(
             provider=settings.provider,
             api_key=(settings.api_key_encrypted or "").strip(),
             model=settings.model_name or "gpt-4o-mini",
-            system_prompt="你只输出一段描述正文，不要其他内容。",
+            system_prompt="你只输出描述正文（按用户要求的四段结构），不要其他内容。",
             user_content=prompt,
             proxy_url=settings.proxy_url,
             extra_config_json=settings.extra_config_json or "{}",
@@ -391,12 +414,12 @@ async def search_online_and_refine_card(card_id: int, settings_id: int, db: Asyn
     )
     if desc:
         prompt += f"当前描述（可作参考）：\n{desc}\n\n"
-    prompt += "请只输出提炼后的完整描述正文，不要解释、不要标题。"
+    prompt += CARD_DESC_FORMAT_INSTRUCTION + "\n请只输出按上述结构写满的描述正文，不要解释。"
     raw = await ai_service.complete(
         provider=settings.provider,
         api_key=(settings.api_key_encrypted or "").strip(),
         model=settings.model_name or "gpt-4o-mini",
-        system_prompt="你是一名写作助手。根据用户给的卡片信息，联网搜索并提炼成一段可用于小说设定的描述。只输出描述正文。",
+        system_prompt="你是一名写作助手。联网搜索后，将信息提炼为便于续写模型使用的设定描述，严格按用户要求的四段结构输出。只输出正文。",
         user_content=prompt,
         proxy_url=settings.proxy_url,
         extra_config_json=settings.extra_config_json or "{}",
@@ -406,6 +429,172 @@ async def search_online_and_refine_card(card_id: int, settings_id: int, db: Asyn
         return None
     cleaned = _hide_reference_links(raw.strip())
     return cleaned.strip() if cleaned.strip() else None
+
+
+_VALID_CARD_TYPES = frozenset({"character", "worldview", "setting", "plot", "custom"})
+
+
+def _strip_json_fence(text: str) -> str:
+    t = (text or "").strip()
+    if not t.startswith("```"):
+        return t
+    lines = t.split("\n")
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _parse_suggest_candidates_payload(raw: str) -> list[Any] | None:
+    if not raw or not isinstance(raw, str):
+        return None
+    t = _strip_json_fence(raw)
+    try:
+        payload = json.loads(t)
+    except Exception:
+        m = re.search(r"\{[\s\S]*\}", t)
+        if not m:
+            return None
+        try:
+            payload = json.loads(m.group(0))
+        except Exception:
+            return None
+    if not isinstance(payload, dict):
+        return None
+    arr = payload.get("candidates")
+    if not isinstance(arr, list):
+        return None
+    return arr
+
+
+def _normalize_suggest_items(arr: list[Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in arr:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()
+        ct = (item.get("card_type") or "custom").strip()
+        if ct not in _VALID_CARD_TYPES:
+            ct = "custom"
+        reason = (item.get("reason") or "").strip()
+        text = (item.get("text") or "").strip()
+        if not name or not text:
+            continue
+        key = f"{ct}:{name}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "card_type": ct, "reason": reason, "text": text})
+    return out[:12]
+
+
+def _fallback_candidates_from_plain(plain: str, chapter_title: str) -> list[dict[str, Any]]:
+    """模型未返回有效条目时，从正文切分生成可编辑兜底项，避免用户完全无从下手。"""
+    p = plain.strip()
+    if len(p) < 15:
+        return []
+    parts = re.split(r"(?<=[。！？\n])", p)
+    segs = [s.strip() for s in parts if len(s.strip()) > 18][:5]
+    if not segs:
+        segs = [p[:800]]
+    title_base = (chapter_title or "本章").strip()[:24] or "本章"
+    out: list[dict[str, Any]] = []
+    for i, seg in enumerate(segs[:4]):
+        snippet = seg[:700]
+        out.append(
+            {
+                "name": f"{title_base}·片段{i + 1}" if len(segs) > 1 else f"{title_base}·摘录",
+                "card_type": "setting",
+                "reason": "模型未识别出结构化条目，已按句切分；请改名并归入角色/世界观等类型",
+                "text": (
+                    "【定位】来自本章正文摘录，待整理为正式卡片\n"
+                    "【要点】\n"
+                    f"- {snippet}\n"
+                    "【关系】无\n"
+                    "【写作提示】可拆成多条或合并到已有卡片\n"
+                ),
+            }
+        )
+    return out
+
+
+async def suggest_cards_from_chapter(
+    chapter_id: int, novel_id: int, settings_id: int, db: AsyncSession
+) -> list[dict[str, Any]]:
+    """From current chapter plain text, suggest new card candidates (user confirms before create)."""
+    result = await db.execute(select(Chapter).where(Chapter.id == chapter_id, Chapter.novel_id == novel_id))
+    chapter = result.scalar_one_or_none()
+    if not chapter:
+        return []
+    plain = _chapter_plain_text(chapter.content or "")
+    if not plain.strip():
+        return []
+    set_result = await db.execute(select(Settings).where(Settings.id == settings_id))
+    settings = set_result.scalar_one_or_none()
+    if not settings or not (settings.api_key_encrypted or "").strip():
+        return []
+    cr = await db.execute(select(Card).where(Card.novel_id == novel_id))
+    existing = list(cr.scalars().all())
+    names_lines = "\n".join(f"- {c.name} ({c.card_type})" for c in existing if (c.name or "").strip()) or "（尚无卡片）"
+    snippet = plain[-15000:] if len(plain) > 15000 else plain
+    n_chars = len(plain.strip())
+
+    async def call_model(user_content: str) -> str:
+        return await ai_service.complete(
+            provider=settings.provider,
+            api_key=(settings.api_key_encrypted or "").strip(),
+            model=settings.model_name or "gpt-4o-mini",
+            system_prompt="你只输出合法 JSON 对象，键 candidates 为数组；不要 markdown、不要解释。",
+            user_content=user_content,
+            proxy_url=settings.proxy_url,
+            extra_config_json=settings.extra_config_json or "{}",
+            max_tokens=6000,
+            read_timeout=300.0,
+        )
+
+    prompt1 = (
+        "以下是当前章节正文。请尽量多识别可建档元素（目标 4～10 条）：出现的角色姓名、地名/场景、组织势力、"
+        "道具与规则、世界观信息等；即使着墨不多也可建「待补充」型卡片，不要轻易返回空数组。\n"
+        "避免与【已有卡片】名称完全重复；同名不同人请加区分后缀。\n"
+        + CARD_DESC_FORMAT_INSTRUCTION
+        + "\n只输出 JSON：\n"
+        '{"candidates":[{"name":"卡片标题","card_type":"character|worldview|setting|plot|custom",'
+        '"reason":"一句理由","text":"按上述四段结构的完整描述"}]}\n'
+        f"最多 12 条。本章有效字数约 {n_chars}。\n\n"
+        "【已有卡片】\n" + names_lines + "\n\n【章节正文】\n" + snippet
+    )
+
+    out: list[dict[str, Any]] = []
+    try:
+        raw1 = await call_model(prompt1)
+        arr1 = _parse_suggest_candidates_payload(raw1 or "")
+        out = _normalize_suggest_items(arr1 or [])
+    except Exception:
+        out = []
+
+    if not out and n_chars >= 50:
+        prompt2 = (
+            f"上一轮流标可能失败或返回空。本章约 {n_chars} 字。你**必须**输出至少 5 条 candidates。\n"
+            "可从正文逐段提取：每个人称「他/她」若首次出现可拟临时名、每个地点单独一条、每条用"
+            "【定位】【要点】【关系】【写作提示】写满（要点至少 2 条短句）。\n"
+            "只输出 JSON：{\"candidates\":[...]} ，不要其他文字。\n\n【已有卡片】\n"
+            + names_lines
+            + "\n\n【章节正文】\n"
+            + snippet
+        )
+        try:
+            raw2 = await call_model(prompt2)
+            arr2 = _parse_suggest_candidates_payload(raw2 or "")
+            out = _normalize_suggest_items(arr2 or [])
+        except Exception:
+            pass
+
+    if not out:
+        out = _fallback_candidates_from_plain(plain, chapter.title or "")
+
+    return out[:12]
 
 
 def build_system_prompt(cards: list[Card], author: Any = None) -> str:

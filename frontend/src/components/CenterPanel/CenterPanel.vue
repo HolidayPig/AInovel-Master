@@ -1,14 +1,13 @@
 <template>
   <div class="center-panel">
-    <ProgressBar
-      :visible="progressVisible"
-      :phase="progressPhase"
-      :bar-color="progressBarColor"
-    />
     <div v-if="!store.currentChapter" class="empty-hint">
       请从左侧选择或新建章节后编辑
     </div>
     <template v-else>
+      <div v-if="store.currentChapter?.summary" class="chapter-summary-bar">
+        <span class="chapter-summary-label">本章梗概</span>
+        <span class="chapter-summary-text">{{ store.currentChapter.summary }}</span>
+      </div>
       <div class="editor-area">
         <div class="editor-area-content">
           <NovelEditor
@@ -20,8 +19,8 @@
           <div class="stream-label">{{ showConfirmBar ? "生成完毕，请确认" : "AI 续写中..." }}</div>
           <div class="stream-text">{{ streamingText }}</div>
           <div v-if="showConfirmBar" class="confirm-bar">
-            <el-button type="primary" @click="acceptGenerated">接受</el-button>
-            <el-button @click="regenerate">重新生成</el-button>
+            <el-button type="primary" @click="acceptGenerated">Apply</el-button>
+            <el-button @click="regenerate">Regenerate</el-button>
           </div>
           </div>
         </div>
@@ -45,7 +44,9 @@
               inactive-text="不联网"
             />
           </div>
-          <el-button type="primary" :loading="generating" @click="handleSend">发送</el-button>
+          <el-button type="primary" :loading="generating" class="send-btn" @click="handleSend">
+            Send
+          </el-button>
         </div>
       </div>
     </template>
@@ -58,26 +59,30 @@ import { useNovelStore } from "@/stores/novel";
 import { useSettingsStore } from "@/stores/settings";
 import { useAuthorStore } from "@/stores/author";
 import NovelEditor from "./NovelEditor.vue";
-import ProgressBar from "./ProgressBar.vue";
 import { streamGenerate } from "@/api/ai";
+import { useAiProgressStore } from "@/stores/aiProgress";
 import { ElMessage } from "element-plus";
 
 const store = useNovelStore();
 const settingsStore = useSettingsStore();
 const authorStore = useAuthorStore();
+const aiProgress = useAiProgressStore();
 const localContent = ref("");
 const prompt = ref("");
 const generating = ref(false);
 const streamingText = ref("");
-const progressVisible = ref(false);
-const progressPhase = ref<"prepare" | "thinking" | "writing" | "done" | "error">("prepare");
-const progressBarColor = ref({ from: "#409eff", to: "#79bbff" });
 const showConfirmBar = ref(false);
 const webSearchThisTime = ref(false);
 const canWebSearch = computed(() => {
   const cur = settingsStore.current();
   if (!cur) return false;
-  return cur.provider === "grok" || cur.provider === "xai";
+  if (cur.provider === "grok" || cur.provider === "xai") return true;
+  try {
+    const o = JSON.parse(cur.extra_config_json || "{}");
+    return !!(o.supports_web_search ?? o.web_search_supported ?? o.enable_web_search);
+  } catch {
+    return false;
+  }
 });
 let lastGenerateParams: {
   settings_id: number;
@@ -86,22 +91,9 @@ let lastGenerateParams: {
   author_id: number | null;
   context: string;
   prompt: string;
+  web_search_enabled?: boolean;
 } | null = null;
-let doneHideTimer: ReturnType<typeof setTimeout> | null = null;
-
-const PROGRESS_COLORS = [
-  { from: "#409eff", to: "#79bbff" },
-  { from: "#67c23a", to: "#95d475" },
-  { from: "#e6a23c", to: "#f0c78a" },
-  { from: "#f56c6c", to: "#f89898" },
-  { from: "#909399", to: "#b1b3b8" },
-  { from: "#9c27b0", to: "#ce93d8" },
-  { from: "#00bcd4", to: "#80deea" },
-  { from: "#ff9800", to: "#ffb74d" },
-];
-function pickProgressColor() {
-  return PROGRESS_COLORS[Math.floor(Math.random() * PROGRESS_COLORS.length)];
-}
+let lastDetailThrottle = 0;
 
 function stripHtml(html: string): string {
   const div = document.createElement("div");
@@ -150,10 +142,14 @@ async function handleSend() {
   }
   generating.value = true;
   streamingText.value = "";
-  progressPhase.value = "prepare";
-  progressBarColor.value = pickProgressColor();
-  progressVisible.value = true;
-  if (doneHideTimer) clearTimeout(doneHideTimer);
+  lastDetailThrottle = 0;
+  const useWeb = canWebSearch.value && webSearchThisTime.value;
+  aiProgress.start("续写发送", {
+    phase: "prepare",
+    detail: useWeb
+      ? "已开启联网：模型将先检索网络再续写，耗时可能稍长…"
+      : "正在注入本章梗概、目标字数与相关小说卡片…",
+  });
   let userPrompt = prompt.value.trim();
   prompt.value = "";
   if (chapter.summary || (chapter.target_words && chapter.target_words > 0)) {
@@ -175,47 +171,54 @@ async function handleSend() {
     prompt: userPrompt,
     web_search_enabled: canWebSearch.value ? webSearchThisTime.value : undefined,
   };
-  lastGenerateParams = params;
+  lastGenerateParams = { ...params, web_search_enabled: params.web_search_enabled };
   const tThinking = setTimeout(() => {
-    if (progressPhase.value === "prepare") progressPhase.value = "thinking";
-  }, 400);
+    if (aiProgress.phase === "prepare") {
+      aiProgress.setPhase("thinking", useWeb ? "联网检索与推理中，尚未输出正文…" : "模型正在构思下文，请稍候…");
+    }
+  }, 450);
   try {
     await streamGenerate(
       params,
       (ev) => {
+        if (ev.type === "status") {
+          // 后端实时状态：读取/组装/联网/等待首 token 等
+          aiProgress.setPhase(ev.phase as any, ev.detail || "");
+          return;
+        }
         if (ev.type === "delta") {
           clearTimeout(tThinking);
-          if (progressPhase.value !== "writing") progressPhase.value = "writing";
           streamingText.value += ev.text;
+          if (aiProgress.phase !== "writing") {
+            aiProgress.setPhase("writing");
+          }
+          const now = Date.now();
+          if (now - lastDetailThrottle > 380) {
+            aiProgress.appendWritingPreview(streamingText.value);
+            lastDetailThrottle = now;
+          }
         }
         if (ev.type === "error") {
           clearTimeout(tThinking);
-          progressPhase.value = "error";
+          aiProgress.setDetail(ev.message || "生成失败");
+          aiProgress.finishError();
           generating.value = false;
           showConfirmBar.value = false;
           ElMessage.error(ev.message);
-          doneHideTimer = setTimeout(() => {
-            progressVisible.value = false;
-          }, 1200);
         }
         if (ev.type === "done") {
           clearTimeout(tThinking);
-          progressPhase.value = "done";
+          aiProgress.setDetail("本段生成完毕，请在下方预览并点击「接受」并入正文。");
+          aiProgress.finishSuccess(550);
           generating.value = false;
           showConfirmBar.value = true;
-          doneHideTimer = setTimeout(() => {
-            progressVisible.value = false;
-          }, 300);
         }
       }
     );
   } catch (e) {
     clearTimeout(tThinking);
-    progressPhase.value = "error";
-    progressVisible.value = true;
-    doneHideTimer = setTimeout(() => {
-      progressVisible.value = false;
-    }, 1200);
+    aiProgress.setDetail(String(e));
+    aiProgress.finishError();
     ElMessage.error(String(e));
     generating.value = false;
     streamingText.value = "";
@@ -240,27 +243,47 @@ function regenerate() {
   if (!lastGenerateParams) return;
   streamingText.value = "";
   showConfirmBar.value = false;
-  progressBarColor.value = pickProgressColor();
-  progressVisible.value = true;
-  progressPhase.value = "prepare";
+  lastDetailThrottle = 0;
+  const useWeb = !!lastGenerateParams.web_search_enabled;
+  aiProgress.start("重新生成", {
+    phase: "prepare",
+    detail: useWeb ? "重新联网检索并生成…" : "使用上次提示与上下文重新生成…",
+  });
   generating.value = true;
   const params = { ...lastGenerateParams };
+  const tThinking = setTimeout(() => {
+    if (aiProgress.phase === "prepare") {
+      aiProgress.setPhase("thinking", useWeb ? "联网检索与推理中…" : "模型重新构思中…");
+    }
+  }, 450);
   streamGenerate(params, (ev) => {
+    if (ev.type === "status") {
+      aiProgress.setPhase(ev.phase as any, ev.detail || "");
+      return;
+    }
     if (ev.type === "delta") {
-      if (progressPhase.value !== "writing") progressPhase.value = "writing";
+      clearTimeout(tThinking);
       streamingText.value += ev.text;
+      if (aiProgress.phase !== "writing") aiProgress.setPhase("writing");
+      const now = Date.now();
+      if (now - lastDetailThrottle > 380) {
+        aiProgress.appendWritingPreview(streamingText.value);
+        lastDetailThrottle = now;
+      }
     }
     if (ev.type === "error") {
-      progressPhase.value = "error";
+      clearTimeout(tThinking);
+      aiProgress.setDetail(ev.message || "失败");
+      aiProgress.finishError();
       generating.value = false;
       ElMessage.error(ev.message);
-      progressVisible.value = false;
     }
     if (ev.type === "done") {
-      progressPhase.value = "done";
+      clearTimeout(tThinking);
+      aiProgress.setDetail("生成完毕，请确认后接受。");
+      aiProgress.finishSuccess(500);
       generating.value = false;
       showConfirmBar.value = true;
-      progressVisible.value = false;
     }
   });
 }
@@ -279,6 +302,31 @@ function regenerate() {
   align-items: center;
   justify-content: center;
   color: var(--el-text-color-secondary);
+}
+.chapter-summary-bar {
+  flex-shrink: 0;
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 13px;
+  line-height: 1.55;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.chapter-summary-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-color-primary);
+  margin-bottom: 6px;
+}
+.chapter-summary-text {
+  color: var(--el-text-color-regular);
+  white-space: pre-wrap;
 }
 .editor-area {
   flex: 1;
@@ -358,5 +406,10 @@ function regenerate() {
   border-top: 1px solid var(--el-border-color-lighter);
   display: flex;
   gap: 8px;
+}
+.send-btn {
+  min-width: 88px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 </style>

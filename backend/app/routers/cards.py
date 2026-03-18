@@ -28,6 +28,12 @@ class SearchOnlineBody(BaseModel):
     settings_id: int
 
 
+class SuggestFromChapterBody(BaseModel):
+    chapter_id: int
+    novel_id: int
+    settings_id: int
+
+
 @router.get("", response_model=list[CardResponse])
 async def list_cards(novel_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Card).where(Card.novel_id == novel_id))
@@ -80,6 +86,15 @@ async def search_online(body: SearchOnlineBody, db: AsyncSession = Depends(get_d
     except Exception as e:
         # Surface upstream tool/schema errors (e.g. 422 tools schema) for debugging.
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/suggest-from-chapter")
+async def suggest_from_chapter(body: SuggestFromChapterBody, db: AsyncSession = Depends(get_db)):
+    """Analyze current chapter text and suggest card candidates (user confirms before create)."""
+    candidates = await card_engine.suggest_cards_from_chapter(
+        body.chapter_id, body.novel_id, body.settings_id, db
+    )
+    return {"candidates": candidates}
 
 
 @router.get("/{card_id}", response_model=CardResponse)

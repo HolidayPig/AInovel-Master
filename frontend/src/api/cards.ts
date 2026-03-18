@@ -1,6 +1,8 @@
 import { api } from "./client";
 import type { Card } from "@/types";
 
+const AI_LONG_TIMEOUT_MS = 660000;
+
 export function listCards(novelId: number) {
   return api.get<Card[]>("/cards", { params: { novel_id: novelId } });
 }
@@ -31,10 +33,14 @@ export function deleteCard(id: number) {
 }
 
 export function refreshAllCards(novelId: number, settingsId: number) {
-  return api.post<{ updated: number }>("/cards/refresh-all", {
-    novel_id: novelId,
-    settings_id: settingsId,
-  });
+  return api.post<{ updated: number }>(
+    "/cards/refresh-all",
+    {
+      novel_id: novelId,
+      settings_id: settingsId,
+    },
+    { timeout: AI_LONG_TIMEOUT_MS }
+  );
 }
 
 export function refreshOneCardSuggestion(
@@ -42,16 +48,42 @@ export function refreshOneCardSuggestion(
   novelId: number,
   settingsId: number
 ) {
-  return api.post<{ old_text: string; new_text: string }>("/cards/refresh-one-suggestion", {
-    card_id: cardId,
-    novel_id: novelId,
-    settings_id: settingsId,
-  });
+  return api.post<{ old_text: string; new_text: string }>(
+    "/cards/refresh-one-suggestion",
+    {
+      card_id: cardId,
+      novel_id: novelId,
+      settings_id: settingsId,
+    },
+    { timeout: AI_LONG_TIMEOUT_MS }
+  );
 }
 
 export function searchOnlineCard(cardId: number, settingsId: number) {
-  return api.post<{ new_text: string }>("/cards/search-online", {
-    card_id: cardId,
-    settings_id: settingsId,
-  });
+  return api.post<{ new_text: string }>(
+    "/cards/search-online",
+    {
+      card_id: cardId,
+      settings_id: settingsId,
+    },
+    { timeout: AI_LONG_TIMEOUT_MS }
+  );
+}
+
+export function suggestCardsFromChapter(
+  chapterId: number,
+  novelId: number,
+  settingsId: number
+) {
+  return api.post<{
+    candidates: { name: string; card_type: string; reason: string; text: string }[];
+  }>(
+    "/cards/suggest-from-chapter",
+    {
+      chapter_id: chapterId,
+      novel_id: novelId,
+      settings_id: settingsId,
+    },
+    { timeout: AI_LONG_TIMEOUT_MS }
+  );
 }

@@ -9,6 +9,7 @@ export interface GenerateParams {
 }
 
 export type StreamEvent =
+  | { type: "status"; phase: "prepare" | "thinking" | "writing" | "querying" | "processing"; detail: string }
   | { type: "delta"; text: string }
   | { type: "error"; message: string }
   | { type: "done" };

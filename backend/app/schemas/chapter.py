@@ -32,3 +32,26 @@ class ChapterResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class GenerateChaptersBriefRequest(BaseModel):
+    novel_id: int
+    settings_id: int
+    """True：删除本小说现有全部章节后按大纲新建；False：在现有章节之后追加。"""
+    replace_existing: bool = False
+    synopsis: str = ""
+    main_line: str = ""
+    opening: str = ""
+    early: str = ""
+    middle: str = ""
+    late: str = ""
+    genre: str = ""
+    tone: str = ""
+    extra: str = ""
+    total_chapters: int = 10
+    target_words_per_chapter: int = 0
+
+
+class GenerateChaptersBriefResponse(BaseModel):
+    outline: str = ""
+    chapters: list[ChapterResponse]

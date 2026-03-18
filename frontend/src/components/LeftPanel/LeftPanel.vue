@@ -4,7 +4,7 @@
     <section class="section section--fixed">
       <div class="section-header">
         <span>小说家</span>
-        <el-button type="primary" link class="add-btn" @click="openAuthorEditor(null)">
+        <el-button class="panel-icon-btn" title="新建小说家" @click="openAuthorEditor(null)">
           <el-icon><Plus /></el-icon>
         </el-button>
       </div>
@@ -30,7 +30,7 @@
     <section class="section section--fixed">
       <div class="section-header">
         <span>小说列表</span>
-        <el-button type="primary" link class="add-btn" @click="handleAddNovel">
+        <el-button class="panel-icon-btn" title="新建小说" @click="handleAddNovel">
           <el-icon><Plus /></el-icon>
         </el-button>
       </div>
@@ -56,15 +56,25 @@
     <section class="section section--fill">
       <div class="section-header">
         <span>章节列表</span>
-        <el-button
-          type="primary"
-          link
-          class="add-btn"
-          :disabled="!store.currentNovel"
-          @click="handleAddChapter"
-        >
-          <el-icon><Plus /></el-icon>
-        </el-button>
+        <div class="section-header-actions">
+          <el-button
+            class="panel-pill"
+            :disabled="!store.currentNovel"
+            title="AI 分章大纲"
+            @click="outlineGenVisible = true"
+          >
+            <el-icon><MagicStick /></el-icon>
+            Outline
+          </el-button>
+          <el-button
+            class="panel-icon-btn"
+            title="新建章节"
+            :disabled="!store.currentNovel"
+            @click="handleAddChapter"
+          >
+            <el-icon><Plus /></el-icon>
+          </el-button>
+        </div>
       </div>
       <div class="section-frame section-frame--fill">
         <div class="section-body section-body--chapters">
@@ -147,23 +157,34 @@
       :next-chapter-index="(store.chapters?.length ?? 0) + 1"
       @saved="onChapterCreated"
     />
+
+    <ChapterOutlineGenerateDialog
+      v-model="outlineGenVisible"
+      :novel-id="store.currentNovel?.id ?? 0"
+      :settings-id="settingsStore.currentId"
+      @done="onOutlineChaptersDone"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { Plus } from "@element-plus/icons-vue";
+import { Plus, MagicStick } from "@element-plus/icons-vue";
 import { useNovelStore } from "@/stores/novel";
 import { useAuthorStore } from "@/stores/author";
+import { useSettingsStore } from "@/stores/settings";
 import type { Novel, Chapter, Author } from "@/types";
 import { ElMessage, ElMessageBox } from "element-plus";
 import AuthorEditor from "./AuthorEditor.vue";
 import NovelCreateDialog from "./NovelCreateDialog.vue";
 import ChapterCreateDialog from "./ChapterCreateDialog.vue";
 import ChapterEditDialog from "./ChapterEditDialog.vue";
+import ChapterOutlineGenerateDialog from "./ChapterOutlineGenerateDialog.vue";
 
 const store = useNovelStore();
 const authorStore = useAuthorStore();
+const settingsStore = useSettingsStore();
+const outlineGenVisible = ref(false);
 const contextTarget = ref<"novel" | "chapter" | "author" | null>(null);
 const editingAuthor = ref<Author | null>(null);
 const authorEditorVisible = ref(false);
@@ -276,6 +297,17 @@ async function onNovelCreated(payload: { title: string; description: string; wor
 
 function handleAddChapter() {
   if (store.currentNovel) chapterCreateVisible.value = true;
+}
+
+async function onOutlineChaptersDone(payload: { replace_existing: boolean }) {
+  if (store.currentNovel) {
+    await store.fetchChapters();
+    const list = store.chapters;
+    if (list.length) {
+      if (payload.replace_existing) store.selectChapter(list[0]);
+      else store.selectChapter(list[list.length - 1]);
+    }
+  }
 }
 
 async function onChapterCreated(payload: {
@@ -421,6 +453,12 @@ async function onChapterDrop(e: DragEvent) {
   padding: 2px 0 8px;
   font-weight: 600;
   font-size: 13px;
+}
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .section-frame {
   border: 1px solid rgba(255, 255, 255, 0.6);
