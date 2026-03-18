@@ -67,6 +67,15 @@
             Outline
           </el-button>
           <el-button
+            class="panel-pill"
+            :disabled="!store.currentNovel || !store.chapters.length || generatingBook"
+            title="按顺序生成所有章节正文"
+            @click="handleGenerateBook"
+          >
+            <el-icon><MagicStick /></el-icon>
+            全书生成
+          </el-button>
+          <el-button
             class="panel-icon-btn"
             title="新建章节"
             :disabled="!store.currentNovel"
@@ -175,6 +184,8 @@ import { useAuthorStore } from "@/stores/author";
 import { useSettingsStore } from "@/stores/settings";
 import type { Novel, Chapter, Author } from "@/types";
 import { ElMessage, ElMessageBox } from "element-plus";
+import { streamGenerate } from "@/api/ai";
+import { useAiProgressStore } from "@/stores/aiProgress";
 import AuthorEditor from "./AuthorEditor.vue";
 import NovelCreateDialog from "./NovelCreateDialog.vue";
 import ChapterCreateDialog from "./ChapterCreateDialog.vue";
@@ -184,7 +195,9 @@ import ChapterOutlineGenerateDialog from "./ChapterOutlineGenerateDialog.vue";
 const store = useNovelStore();
 const authorStore = useAuthorStore();
 const settingsStore = useSettingsStore();
+const aiProgress = useAiProgressStore();
 const outlineGenVisible = ref(false);
+const generatingBook = ref(false);
 const contextTarget = ref<"novel" | "chapter" | "author" | null>(null);
 const editingAuthor = ref<Author | null>(null);
 const authorEditorVisible = ref(false);
@@ -323,6 +336,119 @@ async function onChapterCreated(payload: {
   });
   if (chapter) store.selectChapter(chapter);
   ElMessage.success("已创建章节");
+}
+
+function stripHtml(html: string): string {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return (div.textContent || "").trim();
+}
+
+function htmlEscape(s: string): string {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function textToHtmlParagraphs(text: string): string {
+  const escaped = htmlEscape(text || "").replace(/\n/g, "</p><p>");
+  return "<p>" + escaped + "</p>";
+}
+
+async function streamGenerateToText(params: Parameters<typeof streamGenerate>[0]): Promise<string> {
+  let out = "";
+  await streamGenerate(params, (ev) => {
+    if (ev.type === "delta") out += ev.text;
+    if (ev.type === "error") throw new Error(ev.message || "生成失败");
+    if (ev.type === "status") {
+      // 同步全局进度条
+      aiProgress.setPhase(ev.phase as any, ev.detail || "");
+    }
+    if (ev.type === "delta") {
+      if (aiProgress.phase !== "writing") aiProgress.setPhase("writing");
+      aiProgress.appendWritingPreview(out);
+    }
+  });
+  return out.trim();
+}
+
+async function handleGenerateBook() {
+  if (!store.currentNovel) return;
+  const settingsId = settingsStore.currentId ?? settingsStore.current()?.id;
+  if (!settingsId) {
+    ElMessage.warning("请先在设置中配置 API Key 和模型");
+    return;
+  }
+  // 一次性确认：覆盖或跳过已有内容
+  const hasContent = store.chapters.some((c) => (stripHtml(c.content || "") || "").length > 0);
+  let overwrite = false;
+  if (hasContent) {
+    try {
+      await ElMessageBox.confirm(
+        "检测到部分章节已有正文。是否覆盖已有正文并重新生成？\n选择「取消」将跳过已有正文，仅生成空章节。",
+        "全书生成确认",
+        {
+          type: "warning",
+          confirmButtonText: "覆盖并生成",
+          cancelButtonText: "跳过已有",
+          distinguishCancelAndClose: true,
+        }
+      );
+      overwrite = true;
+    } catch {
+      overwrite = false;
+    }
+  }
+
+  generatingBook.value = true;
+  aiProgress.start("全书生成", { phase: "prepare", detail: "准备按顺序生成章节正文…" });
+  try {
+    // 生成时不自动联网（避免成本不可控）；如需联网可后续加开关
+    const web_search_enabled = false;
+    const sorted = [...store.chapters].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
+    const novelDesc = (store.currentNovel.description || "").trim();
+    let accumulatedContext = novelDesc ? `【小说简介】\n${novelDesc}\n\n` : "";
+    for (let i = 0; i < sorted.length; i++) {
+      const ch = sorted[i]!;
+      const existing = stripHtml(ch.content || "");
+      if (!overwrite && existing) {
+        aiProgress.setPhase("processing", `跳过：${ch.title || "未命名章节"}（已有正文） · ${i + 1}/${sorted.length}`);
+        // 把已有正文也纳入上下文，保证后续章节连贯
+        accumulatedContext += `【${ch.title || "章节"}】\n${existing}\n\n`;
+        continue;
+      }
+      const parts: string[] = [];
+      parts.push("请根据以下信息，写出本章节的完整正文。只输出小说正文，不要解释或元评论。");
+      if (ch.summary) parts.push("【本章梗概】\n" + ch.summary);
+      if (ch.target_words && ch.target_words > 0) parts.push("【目标字数】约 " + ch.target_words + " 字");
+      parts.push("【写作要求】\n- 与已写内容保持连贯\n- 适当铺垫与推进\n- 避免重复前文\n");
+      const prompt = parts.join("\n\n");
+
+      aiProgress.setPhase("prepare", `正在生成：${ch.title || "未命名章节"} · ${i + 1}/${sorted.length}`);
+      const text = await streamGenerateToText({
+        settings_id: settingsId,
+        novel_id: store.currentNovel.id,
+        chapter_id: ch.id,
+        author_id: authorStore.currentAuthorId,
+        context: accumulatedContext.trim(),
+        prompt,
+        web_search_enabled,
+      });
+      const html = textToHtmlParagraphs(text);
+      await store.updateChapter(ch.id, { content: html });
+      accumulatedContext += `【${ch.title || "章节"}】\n${text}\n\n`;
+      aiProgress.setPhase("processing", `已写入：${ch.title || "未命名章节"} · ${i + 1}/${sorted.length}`);
+    }
+    aiProgress.setDetail("全书生成完成。");
+    aiProgress.finishSuccess(900);
+    ElMessage.success("全书生成完成");
+  } catch (e) {
+    aiProgress.setDetail(String(e));
+    aiProgress.finishError();
+    ElMessage.error(String(e));
+  } finally {
+    generatingBook.value = false;
+  }
 }
 
 function handleRenameNovel() {
