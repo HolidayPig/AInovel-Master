@@ -11,7 +11,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 @router.get("", response_model=list[SettingsResponse])
 async def list_settings(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Settings))
+    result = await db.execute(select(Settings).order_by(Settings.updated_at.desc(), Settings.id.desc()))
     items = result.scalars().all()
     return [SettingsResponse(
         id=s.id,

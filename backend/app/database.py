@@ -29,7 +29,7 @@ async def get_db():
 
 
 async def _migrate_chapters_columns(conn):
-    """Add summary/target_words to chapters if missing (v0.2.1)."""
+    """Add newer chapter columns if missing."""
     result = await conn.execute(text("PRAGMA table_info(chapters)"))
     rows = result.fetchall()
     if not rows:
@@ -39,10 +39,42 @@ async def _migrate_chapters_columns(conn):
         await conn.execute(text("ALTER TABLE chapters ADD COLUMN summary TEXT"))
     if "target_words" not in names:
         await conn.execute(text("ALTER TABLE chapters ADD COLUMN target_words INTEGER"))
+    if "status" not in names:
+        await conn.execute(text("ALTER TABLE chapters ADD COLUMN status VARCHAR(32) DEFAULT 'drafting'"))
+
+
+async def _migrate_novels_columns(conn):
+    """Add newer novel columns if missing."""
+    result = await conn.execute(text("PRAGMA table_info(novels)"))
+    rows = result.fetchall()
+    if not rows:
+        return
+    names = {row[1] for row in rows}
+    if "outline" not in names:
+        await conn.execute(text("ALTER TABLE novels ADD COLUMN outline TEXT DEFAULT ''"))
+
+
+async def _migrate_cards_columns(conn):
+    """Add newer card metadata columns if missing."""
+    result = await conn.execute(text("PRAGMA table_info(cards)"))
+    rows = result.fetchall()
+    if not rows:
+        return
+    names = {row[1] for row in rows}
+    if "tags" not in names:
+        await conn.execute(text("ALTER TABLE cards ADD COLUMN tags TEXT DEFAULT ''"))
+    if "importance" not in names:
+        await conn.execute(text("ALTER TABLE cards ADD COLUMN importance INTEGER DEFAULT 2"))
+    if "last_referenced_chapter_id" not in names:
+        await conn.execute(text("ALTER TABLE cards ADD COLUMN last_referenced_chapter_id INTEGER"))
+    if "last_referenced_at" not in names:
+        await conn.execute(text("ALTER TABLE cards ADD COLUMN last_referenced_at DATETIME"))
 
 
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with engine.begin() as conn:
+        await _migrate_novels_columns(conn)
         await _migrate_chapters_columns(conn)
+        await _migrate_cards_columns(conn)

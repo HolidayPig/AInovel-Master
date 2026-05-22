@@ -48,6 +48,14 @@
                 <el-option label="自定义" value="custom" />
               </el-select>
             </div>
+            <div class="type-row">
+              <span class="type-label">标签</span>
+              <el-input v-model="row.tags" placeholder="逗号分隔，例如 主角,伏笔" />
+            </div>
+            <div class="type-row">
+              <span class="type-label">重要度</span>
+              <el-segmented v-model="row.importance" :options="importanceOptions" />
+            </div>
             <el-input
               v-model="row.text"
               type="textarea"
@@ -99,6 +107,8 @@ type Row = {
   card_type: CardType;
   reason: string;
   text: string;
+  tags: string;
+  importance: number;
   selected: boolean;
 };
 
@@ -114,6 +124,11 @@ const rows = ref<Row[]>([]);
 const activeNames = ref<string[]>([]);
 
 const selectedCount = computed(() => rows.value.filter((r) => r.selected).length);
+const importanceOptions = [
+  { label: "低", value: 1 },
+  { label: "中", value: 2 },
+  { label: "高", value: 3 },
+];
 
 function typeLabel(t: string) {
   return CARD_TYPE_LABELS[t as CardType] ?? t;
@@ -162,6 +177,8 @@ watch(
           : "custom") as CardType,
         reason: c.reason || "",
         text: c.text || "",
+        tags: c.tags || "",
+        importance: c.importance || 2,
         selected: list.length <= 5,
       }));
       /* 默认全部折叠，仅显示名称，避免多条同时撑满屏导致顶部被裁切 */
@@ -191,6 +208,8 @@ async function addSelected() {
         name: r.name.trim(),
         content_json: JSON.stringify({ text: r.text.trim() }),
         auto_update: false,
+        tags: r.tags.trim(),
+        importance: r.importance || 2,
       });
     }
     ElMessage.success(`已添加 ${picked.length} 张卡片`);

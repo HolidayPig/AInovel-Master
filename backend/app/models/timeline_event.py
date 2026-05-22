@@ -1,21 +1,19 @@
 from datetime import datetime
 from sqlalchemy import String, Text, Integer, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from ..database import Base
 
 
-class Chapter(Base):
-    __tablename__ = "chapters"
+class TimelineEvent(Base):
+    __tablename__ = "timeline_events"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     novel_id: Mapped[int] = mapped_column(ForeignKey("novels.id"), nullable=False)
-    title: Mapped[str] = mapped_column(String(256), default="未命名章节")
-    content: Mapped[str] = mapped_column(Text, default="")
-    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    target_words: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="drafting")
+    chapter_id: Mapped[int | None] = mapped_column(ForeignKey("chapters.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String(256), default="")
+    event_time: Mapped[str] = mapped_column(String(128), default="")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    characters: Mapped[str] = mapped_column(Text, default="")
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    novel = relationship("Novel", back_populates="chapters")

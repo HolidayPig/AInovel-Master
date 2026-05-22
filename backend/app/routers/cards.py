@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+import json
 from pydantic import BaseModel
 
 from ..database import get_db
-from ..models import Card
+from ..models import Card, Settings
 from ..schemas import CardCreate, CardUpdate, CardResponse
 from ..services import card_engine
 
@@ -34,6 +35,23 @@ class SuggestFromChapterBody(BaseModel):
     settings_id: int
 
 
+def _supports_web_search(settings: Settings) -> bool:
+    provider = (settings.provider or "").lower()
+    if provider in {"grok", "xai"}:
+        return True
+    try:
+        extra = json.loads(settings.extra_config_json or "{}")
+    except Exception:
+        extra = {}
+    if not isinstance(extra, dict):
+        return False
+    return bool(
+        extra.get("supports_web_search")
+        or extra.get("web_search_supported")
+        or extra.get("enable_web_search")
+    )
+
+
 @router.get("", response_model=list[CardResponse])
 async def list_cards(novel_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Card).where(Card.novel_id == novel_id))
@@ -48,6 +66,8 @@ async def create_card(data: CardCreate, db: AsyncSession = Depends(get_db)):
         name=data.name,
         content_json=data.content_json,
         auto_update=data.auto_update,
+        tags=data.tags,
+        importance=max(1, min(int(data.importance or 2), 3)),
     )
     db.add(card)
     await db.flush()
@@ -77,6 +97,15 @@ async def refresh_one_suggestion(body: RefreshOneBody, db: AsyncSession = Depend
 async def search_online(body: SearchOnlineBody, db: AsyncSession = Depends(get_db)):
     """Search online by card name/description and return refined card content."""
     try:
+        result = await db.execute(select(Settings).where(Settings.id == body.settings_id))
+        settings = result.scalar_one_or_none()
+        if not settings:
+            raise HTTPException(status_code=404, detail="Settings not found")
+        if not _supports_web_search(settings):
+            raise HTTPException(
+                status_code=400,
+                detail="当前模型配置未声明支持联网工具，请在设置中开启「联网工具」或切换到支持联网的模型。",
+            )
         new_text = await card_engine.search_online_and_refine_card(body.card_id, body.settings_id, db)
         if not new_text:
             raise HTTPException(status_code=400, detail="Failed to search (empty result) or missing API Key")
@@ -120,6 +149,10 @@ async def update_card(card_id: int, data: CardUpdate, db: AsyncSession = Depends
         card.content_json = data.content_json
     if data.auto_update is not None:
         card.auto_update = data.auto_update
+    if data.tags is not None:
+        card.tags = data.tags
+    if data.importance is not None:
+        card.importance = max(1, min(int(data.importance), 3))
     await db.flush()
     await db.refresh(card)
     return card

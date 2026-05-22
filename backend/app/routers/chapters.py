@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
 from ..database import get_db
-from ..models import Chapter, Novel, Settings
+from ..models import Chapter, Novel, Settings, TimelineEvent, ConsistencyCheck
 from ..schemas import (
     ChapterCreate,
     ChapterUpdate,
@@ -33,6 +33,7 @@ async def create_chapter(data: ChapterCreate, db: AsyncSession = Depends(get_db)
         content=data.content,
         summary=data.summary,
         target_words=data.target_words,
+        status=data.status,
         sort_order=data.sort_order,
     )
     db.add(chapter)
@@ -64,6 +65,10 @@ async def update_chapter(chapter_id: int, data: ChapterUpdate, db: AsyncSession 
         chapter.summary = data.summary
     if data.target_words is not None:
         chapter.target_words = data.target_words
+    if data.status is not None:
+        if data.status not in ("drafting", "reviewing", "done"):
+            raise HTTPException(status_code=400, detail="Invalid chapter status")
+        chapter.status = data.status
     if data.sort_order is not None:
         chapter.sort_order = data.sort_order
     await db.flush()
@@ -128,6 +133,8 @@ async def generate_chapters_from_brief(
         raise HTTPException(status_code=500, detail=err_msg) from e
 
     if body.replace_existing:
+        await db.execute(delete(TimelineEvent).where(TimelineEvent.novel_id == body.novel_id))
+        await db.execute(delete(ConsistencyCheck).where(ConsistencyCheck.novel_id == body.novel_id))
         await db.execute(delete(Chapter).where(Chapter.novel_id == body.novel_id))
         await db.flush()
         base_order = 0
@@ -158,8 +165,7 @@ async def generate_chapters_from_brief(
         await db.refresh(ch)
 
     if outline_text:
-        prev = (novel.description or "").strip()
-        novel.description = (prev + "\n\n【AI 生成全书大纲】\n" + outline_text).strip()[:65000]
+        novel.outline = outline_text.strip()[:65000]
 
     await db.commit()
     for ch in created:
@@ -176,5 +182,7 @@ async def delete_chapter(chapter_id: int, db: AsyncSession = Depends(get_db)):
     chapter = result.scalar_one_or_none()
     if not chapter:
         raise HTTPException(status_code=404, detail="Chapter not found")
+    await db.execute(delete(TimelineEvent).where(TimelineEvent.chapter_id == chapter_id))
+    await db.execute(delete(ConsistencyCheck).where(ConsistencyCheck.chapter_id == chapter_id))
     await db.delete(chapter)
     return None

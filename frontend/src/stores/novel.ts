@@ -11,6 +11,7 @@ export const useNovelStore = defineStore("novel", () => {
   const chapters = ref<Chapter[]>([]);
   const currentChapter = ref<Chapter | null>(null);
   const cards = ref<Card[]>([]);
+  const centerMode = ref<"editor" | "workspace">("editor");
 
   async function fetchNovels() {
     const res = await novelApi.listNovels();
@@ -18,7 +19,7 @@ export const useNovelStore = defineStore("novel", () => {
     return res.data;
   }
 
-  async function createNovel(data?: string | { title?: string; description?: string }) {
+  async function createNovel(data?: string | { title?: string; description?: string; outline?: string }) {
     const payload =
       typeof data === "object"
         ? { title: data.title || "未命名小说", description: data.description }
@@ -31,6 +32,7 @@ export const useNovelStore = defineStore("novel", () => {
   async function selectNovel(novel: Novel | null) {
     currentNovel.value = novel;
     currentChapter.value = null;
+    centerMode.value = novel ? "workspace" : "editor";
     if (novel) {
       const res = await chapterApi.listChapters(novel.id);
       chapters.value = res.data;
@@ -42,7 +44,7 @@ export const useNovelStore = defineStore("novel", () => {
     }
   }
 
-  async function updateNovel(id: number, data: { title?: string; description?: string }) {
+  async function updateNovel(id: number, data: { title?: string; description?: string; outline?: string }) {
     const res = await novelApi.updateNovel(id, data);
     const idx = novels.value.findIndex((n) => n.id === id);
     if (idx >= 0) novels.value[idx] = res.data;
@@ -69,7 +71,7 @@ export const useNovelStore = defineStore("novel", () => {
   }
 
   async function createChapter(
-    data?: string | { title?: string; summary?: string; target_words?: number }
+    data?: string | { title?: string; summary?: string; target_words?: number; status?: string }
   ) {
     if (!currentNovel.value) return null;
     const sortOrder = chapters.value.length;
@@ -80,6 +82,7 @@ export const useNovelStore = defineStore("novel", () => {
             title: data.title || "未命名章节",
             summary: data.summary || null,
             target_words: data.target_words ?? null,
+            status: data.status || "drafting",
             sort_order: sortOrder,
           }
         : {
@@ -94,12 +97,20 @@ export const useNovelStore = defineStore("novel", () => {
 
   async function selectChapter(chapter: Chapter | null) {
     currentChapter.value = chapter;
+    if (chapter) centerMode.value = "editor";
     return chapter;
+  }
+
+  function openWorkspace() {
+    if (currentNovel.value) {
+      currentChapter.value = null;
+      centerMode.value = "workspace";
+    }
   }
 
   async function updateChapter(
     id: number,
-    data: { title?: string; content?: string; summary?: string | null; target_words?: number | null; sort_order?: number }
+    data: { title?: string; content?: string; summary?: string | null; target_words?: number | null; status?: string; sort_order?: number }
   ) {
     const res = await chapterApi.updateChapter(id, data);
     const idx = chapters.value.findIndex((c) => c.id === id);
@@ -127,6 +138,8 @@ export const useNovelStore = defineStore("novel", () => {
     name?: string;
     content_json?: string;
     auto_update?: boolean;
+    tags?: string;
+    importance?: number;
   }) {
     const res = await cardApi.createCard(data);
     cards.value.push(res.data);
@@ -135,7 +148,7 @@ export const useNovelStore = defineStore("novel", () => {
 
   async function updateCard(
     id: number,
-    data: { card_type?: string; name?: string; content_json?: string; auto_update?: boolean }
+    data: { card_type?: string; name?: string; content_json?: string; auto_update?: boolean; tags?: string; importance?: number }
   ) {
     const res = await cardApi.updateCard(id, data);
     const idx = cards.value.findIndex((c) => c.id === id);
@@ -154,6 +167,7 @@ export const useNovelStore = defineStore("novel", () => {
     chapters,
     currentChapter,
     cards,
+    centerMode,
     fetchNovels,
     createNovel,
     selectNovel,
@@ -162,6 +176,7 @@ export const useNovelStore = defineStore("novel", () => {
     fetchChapters,
     createChapter,
     selectChapter,
+    openWorkspace,
     updateChapter,
     deleteChapter,
     fetchCards,

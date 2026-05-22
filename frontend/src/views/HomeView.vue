@@ -11,19 +11,38 @@
         />
         <span class="title">AI 小说助手</span>
       </div>
-      <el-button type="primary" class="header-settings" @click="settingsVisible = true">
-        <el-icon><Setting /></el-icon>
-        Settings
-      </el-button>
+      <div class="header-actions">
+        <el-button class="layout-toggle" :type="leftCollapsed ? 'primary' : 'default'" @click="toggleLeft">
+          <el-icon><Fold /></el-icon>
+          左栏
+        </el-button>
+        <el-button class="layout-toggle" :type="rightCollapsed ? 'primary' : 'default'" @click="toggleRight">
+          <el-icon><Fold /></el-icon>
+          右栏
+        </el-button>
+        <el-button type="primary" class="header-settings" @click="settingsVisible = true">
+          <el-icon><Setting /></el-icon>
+          Settings
+        </el-button>
+      </div>
     </header>
     <div class="app-body">
-      <aside class="left-panel">
+      <aside v-if="leftCollapsed" class="collapsed-rail" title="展开左栏" @click="toggleLeft">
+        <el-icon><Menu /></el-icon>
+        <span>导航</span>
+      </aside>
+      <aside v-else class="left-panel">
         <LeftPanel />
       </aside>
       <main class="center-panel">
-        <CenterPanel />
+        <WorkspaceView v-if="store.centerMode === 'workspace'" />
+        <CenterPanel v-else />
       </main>
-      <aside class="right-panel">
+      <aside v-if="rightCollapsed" class="collapsed-rail collapsed-rail--right" title="展开右栏" @click="toggleRight">
+        <el-icon><Collection /></el-icon>
+        <span>卡片</span>
+      </aside>
+      <aside v-else class="right-panel">
         <RightPanel />
       </aside>
     </div>
@@ -33,10 +52,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
-import { Setting } from "@element-plus/icons-vue";
+import { ref, onMounted, watch } from "vue";
+import { Collection, Fold, Menu, Setting } from "@element-plus/icons-vue";
 import LeftPanel from "@/components/LeftPanel/LeftPanel.vue";
 import CenterPanel from "@/components/CenterPanel/CenterPanel.vue";
+import WorkspaceView from "@/views/WorkspaceView.vue";
 import RightPanel from "@/components/RightPanel/RightPanel.vue";
 import SettingsModal from "@/components/Settings/SettingsModal.vue";
 import GlobalAiProgress from "@/components/common/GlobalAiProgress.vue";
@@ -47,11 +67,24 @@ const settingsVisible = ref(false);
 const logoSrc = ref(true);
 const store = useNovelStore();
 const settingsStore = useSettingsStore();
+const leftCollapsed = ref(localStorage.getItem("ainovel.leftCollapsed") === "1");
+const rightCollapsed = ref(localStorage.getItem("ainovel.rightCollapsed") === "1");
 
 onMounted(() => {
   store.fetchNovels();
   settingsStore.fetchSettings();
 });
+
+watch(leftCollapsed, (v) => localStorage.setItem("ainovel.leftCollapsed", v ? "1" : "0"));
+watch(rightCollapsed, (v) => localStorage.setItem("ainovel.rightCollapsed", v ? "1" : "0"));
+
+function toggleLeft() {
+  leftCollapsed.value = !leftCollapsed.value;
+}
+
+function toggleRight() {
+  rightCollapsed.value = !rightCollapsed.value;
+}
 </script>
 
 <style scoped>
@@ -91,12 +124,21 @@ onMounted(() => {
   font-size: 18px;
   font-weight: 600;
 }
-.header-settings {
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-settings,
+.layout-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 0 18px !important;
   border-radius: 999px !important;
+}
+.layout-toggle {
+  padding: 0 14px !important;
 }
 .app-body {
   flex: 1;
@@ -148,5 +190,32 @@ onMounted(() => {
 }
 .right-panel:hover {
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.08);
+}
+.collapsed-rail {
+  width: 48px;
+  border-radius: 16px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--el-text-color-secondary);
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  transition: color 0.2s ease, box-shadow 0.2s ease;
+}
+.collapsed-rail:hover {
+  color: var(--el-color-primary);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.08);
+}
+.collapsed-rail span {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  letter-spacing: 0.1em;
 }
 </style>

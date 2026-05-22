@@ -30,9 +30,20 @@
     <section class="section section--fixed">
       <div class="section-header">
         <span>小说列表</span>
-        <el-button class="panel-icon-btn" title="新建小说" @click="handleAddNovel">
-          <el-icon><Plus /></el-icon>
-        </el-button>
+        <div class="section-header-actions">
+          <el-button
+            class="panel-pill panel-pill--compact"
+            :disabled="!store.currentNovel"
+            title="打开写作工作台"
+            @click="store.openWorkspace()"
+          >
+            <el-icon><DataAnalysis /></el-icon>
+            工作台
+          </el-button>
+          <el-button class="panel-icon-btn" title="新建小说" @click="handleAddNovel">
+            <el-icon><Plus /></el-icon>
+          </el-button>
+        </div>
       </div>
       <div class="section-frame">
         <div class="section-body section-body--novels">
@@ -178,7 +189,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { Plus, MagicStick } from "@element-plus/icons-vue";
+import { Plus, MagicStick, DataAnalysis } from "@element-plus/icons-vue";
 import { useNovelStore } from "@/stores/novel";
 import { useAuthorStore } from "@/stores/author";
 import { useSettingsStore } from "@/stores/settings";
@@ -344,6 +355,12 @@ function stripHtml(html: string): string {
   return (div.textContent || "").trim();
 }
 
+function limitTailText(text: string, max = 12000): string {
+  const s = (text || "").trim();
+  if (s.length <= max) return s;
+  return "……（已省略更早章节正文）\n" + s.slice(-max);
+}
+
 function htmlEscape(s: string): string {
   const div = document.createElement("div");
   div.textContent = s;
@@ -430,7 +447,7 @@ async function handleGenerateBook() {
         novel_id: store.currentNovel.id,
         chapter_id: ch.id,
         author_id: authorStore.currentAuthorId,
-        context: accumulatedContext.trim(),
+        context: limitTailText(accumulatedContext),
         prompt,
         web_search_enabled,
       });
@@ -466,11 +483,12 @@ function handleEditChapter() {
   chapterEditVisible.value = true;
 }
 
-async function onChapterEdited(payload: { id: number; title: string; summary: string; target_words: number }) {
+async function onChapterEdited(payload: { id: number; title: string; summary: string; target_words: number; status: string }) {
   await store.updateChapter(payload.id, {
     title: payload.title,
     summary: payload.summary || null,
     target_words: payload.target_words || null,
+    status: payload.status,
   });
   ElMessage.success("已保存");
   editingChapter.value = null;

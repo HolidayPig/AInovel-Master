@@ -2,7 +2,7 @@
 
 一款 **本地优先** 的 AI 小说写作助手：三栏式编辑体验、小说/章节管理、右侧属性卡片（角色/世界观/设定等），支持流式续写与卡片提炼更新。
 
-**当前版本：v0.3** · 更新日志见 [CHANGELOG.md](CHANGELOG.md)
+**当前版本：v0.4.1** · 更新日志见 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -12,11 +12,13 @@
   - **左侧**：小说家 / 小说列表 / 章节列表（支持拖拽排序）
   - **中间**：章节富文本编辑 + AI 流式续写（可“接受/重新生成”）
   - **右侧**：属性卡片（角色/世界观/设定/剧情线/自定义）
+  - 左右栏可独立收起，刷新后保留布局，便于进入纯净创作环境
 - **小说与章节管理**
   - 小说/章节完整 CRUD
   - 章节右键 **编辑**（章节名/梗概/目标字数）
 - **属性卡片（文本化）**
   - 卡片内容以“详细描述文本”为核心，写作时注入系统提示以保持设定一致
+  - 支持标签、重要度、搜索/筛选与最近 AI 引用记录
   - **一键更新**：按最新小说内容重新提炼全部卡片并直接写回
   - **单卡更新**：对单张卡片提炼，展示新旧对比，确认后覆盖
   - **联网查询**：基于卡片名/描述进行搜索提炼，同样走“新旧对比确认”（并隐藏清洗链接）
@@ -27,6 +29,10 @@
   - 左侧章节列表支持 **Outline**：录入全书梗概/主线/分阶段走向/章数与字数目标，AI 生成全书大纲并拆分为分章标题与每章梗概，自动创建章节
 - **全书一键生成（按章节顺序）**
   - 左侧章节列表支持 **Book**：按章节顺序逐章生成正文，并写入章节内容；遇到已有正文可选择“覆盖生成”或“跳过已有”
+- **小说家写作工作台**
+  - 左侧小说区域支持进入 **工作台**：集中查看全书大纲、章节状态、字数统计、时间线与一致性问题
+  - 支持手动维护时间线，也可从当前章节正文 AI 提取关键事件
+  - 支持按当前章节 / 最近章节 / 全书进行一致性检查，并标记问题已解决
 - **全局 AI 进度条**
   - 顶部展示 AI 任务状态（读取上下文/联网检索/思考/生成中…），并显示“已等待Xs”，便于部署初期排查
 
@@ -38,8 +44,11 @@
 
 ### 后端（FastAPI）
 
+需要 Python 3.10 或更高版本（推荐 3.12+）。如果本机 `python` 仍是 3.9，请先安装新版 Python，或使用 Docker 部署。
+
 ```bash
 cd backend
+python --version
 python -m pip install -r requirements.txt
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
@@ -77,6 +86,9 @@ npm run dev
 
 ### 卡片更新（右侧栏）
 
+- 可按名称、标签、描述搜索卡片，并按类型、重要度或“只看高重要度”过滤
+- 新建/编辑卡片时可维护标签和重要度，AI 续写会结合名称、标签、关键词和描述综合选择相关卡片
+- 卡片列表可复制为提示词片段，卡片详情会提示最近 AI 引用与当前章节相关性
 - **一键更新**：重新提炼全部卡片（直接写回）
 - **更新**（单卡）：提炼本卡片，弹窗展示新旧对比，确认后覆盖
 - **联网查询**：搜索并提炼本卡片，弹窗展示新旧对比；输出中的网址会被隐藏清洗
@@ -122,6 +134,9 @@ docker compose up -d
 - `GET /api/novels`
 - `POST /api/novels`
 - `GET /api/novels/{novel_id}`
+- `GET /api/novels/{novel_id}/workspace`
+- `GET /api/novels/{novel_id}/stats`
+- `POST /api/novels/{novel_id}/consistency-check`
 - `PATCH /api/novels/{novel_id}`
 - `DELETE /api/novels/{novel_id}`
 
@@ -145,6 +160,18 @@ docker compose up -d
 - `POST /api/cards/refresh-one-suggestion`（单卡更新建议：返回新旧内容用于确认）
 - `POST /api/cards/search-online`（卡片联网查询：返回建议内容用于确认）
 - `POST /api/cards/suggest-from-chapter`（从当前章节正文识别可引入为卡片的候选项）
+
+### 时间线（timeline-events）
+
+- `GET /api/timeline-events?novel_id=...`
+- `POST /api/timeline-events`
+- `PATCH /api/timeline-events/{event_id}`
+- `DELETE /api/timeline-events/{event_id}`
+- `POST /api/timeline-events/extract-from-chapter`（从当前章节 AI 提取关键事件候选）
+
+### 一致性检查（consistency-checks）
+
+- `PATCH /api/consistency-checks/{check_id}`（标记问题是否已解决）
 
 ### AI（ai）
 

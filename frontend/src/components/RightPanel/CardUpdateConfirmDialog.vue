@@ -76,7 +76,7 @@ import { ElMessage } from "element-plus";
 
 type Payload = {
   updates: { card_id: number; text: string }[];
-  new_cards: { card_type: string; name: string; text: string; auto_update: boolean }[];
+  new_cards: { card_type: string; name: string; text: string; auto_update: boolean; tags?: string; importance?: number }[];
 };
 
 type Item = {
@@ -89,6 +89,8 @@ type Item = {
   oldText: string;
   newText: string;
   auto_update: boolean;
+  tags: string;
+  importance: number;
 };
 
 const props = defineProps<{
@@ -165,6 +167,8 @@ watch(
         oldText: safeParseText(card),
         newText: u.text || "",
         auto_update: card.auto_update,
+        tags: card.tags || "",
+        importance: card.importance || 2,
       });
     }
     for (const n of props.payload.new_cards || []) {
@@ -178,6 +182,8 @@ watch(
         oldText: "",
         newText: n.text || "",
         auto_update: !!n.auto_update,
+        tags: n.tags || "",
+        importance: n.importance || 2,
       });
     }
     items.value = next;
@@ -204,6 +210,8 @@ async function applyAndNext() {
     if (it.kind === "update" && it.card_id != null) {
       await store.updateCard(it.card_id, {
         content_json: JSON.stringify({ text }),
+        tags: it.tags,
+        importance: it.importance,
       });
       it.oldText = text;
     }
@@ -214,6 +222,8 @@ async function applyAndNext() {
         name: it.name,
         content_json: JSON.stringify({ text }),
         auto_update: it.auto_update,
+        tags: it.tags,
+        importance: it.importance,
       });
       it.oldText = text;
     }
@@ -323,4 +333,3 @@ async function nextOrFinish() {
   color: var(--el-text-color-secondary);
 }
 </style>
-

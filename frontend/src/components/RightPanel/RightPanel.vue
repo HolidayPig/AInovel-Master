@@ -19,8 +19,23 @@
         <el-tab-pane label="角色" name="character" />
         <el-tab-pane label="世界观" name="worldview" />
         <el-tab-pane label="设定" name="setting" />
+        <el-tab-pane label="剧情线" name="plot" />
         <el-tab-pane label="全部" name="all" />
       </el-tabs>
+      <div class="filter-bar">
+        <el-input v-model="searchText" clearable size="small" placeholder="搜索名称、标签、描述">
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <div class="filter-row">
+          <el-select v-model="importanceFilter" size="small" class="importance-filter">
+            <el-option label="全部重要度" value="all" />
+            <el-option label="高重要度" value="3" />
+            <el-option label="中重要度" value="2" />
+            <el-option label="低重要度" value="1" />
+          </el-select>
+          <el-switch v-model="highOnly" size="small" inline-prompt active-text="高" inactive-text="全部" />
+        </div>
+      </div>
       <el-scrollbar class="card-list-scroll">
         <div class="card-list">
           <div
@@ -39,6 +54,15 @@
               </el-icon>
             </div>
             <div class="card-preview">{{ cardPreview(card) }}</div>
+            <div class="card-meta">
+              <el-tag size="small" :type="importanceType(card.importance)">重要度：{{ importanceLabel(card.importance) }}</el-tag>
+              <el-tag v-for="tag in splitTags(card.tags).slice(0, 3)" :key="tag" size="small" effect="plain">
+                {{ tag }}
+              </el-tag>
+            </div>
+            <div v-if="card.last_referenced_at" class="reference-line">
+              最近引用：{{ chapterTitle(card.last_referenced_chapter_id) }}
+            </div>
             <div class="card-actions">
               <el-button
                 class="card-act"
@@ -58,6 +82,7 @@
                 <el-icon><Search /></el-icon>
                 Web
               </el-button>
+              <el-button class="card-act" size="small" @click.stop="copyCardPrompt(card)">复制</el-button>
             </div>
           </div>
           <div v-if="!filteredCards.length" class="empty">暂无卡片，点击 New 添加</div>
@@ -118,6 +143,9 @@ const store = useNovelStore();
 const aiProgress = useAiProgressStore();
 const settingsStore = useSettingsStore();
 const activeTab = ref("all");
+const searchText = ref("");
+const importanceFilter = ref("all");
+const highOnly = ref(false);
 const editorVisible = ref(false);
 const editingCard = ref<Card | null>(null);
 const refreshingAll = ref(false);
@@ -127,14 +155,52 @@ const introVisible = ref(false);
 const cardUpdateVisible = ref(false);
 const cardUpdatePayload = ref<{
   updates: { card_id: number; text: string }[];
-  new_cards: { card_type: string; name: string; text: string; auto_update: boolean }[];
+  new_cards: { card_type: string; name: string; text: string; auto_update: boolean; tags?: string; importance?: number }[];
 } | null>(null);
 
 const filteredCards = computed(() => {
-  const list = store.cards;
-  if (activeTab.value === "all") return list;
-  return list.filter((c) => c.card_type === activeTab.value);
+  const q = normalize(searchText.value);
+  return [...store.cards]
+    .filter((c) => activeTab.value === "all" || c.card_type === activeTab.value)
+    .filter((c) => !highOnly.value || (c.importance || 2) === 3)
+    .filter((c) => importanceFilter.value === "all" || String(c.importance || 2) === importanceFilter.value)
+    .filter((c) => !q || normalize(`${c.name} ${c.tags} ${cardPreview(c)} ${c.content_json}`).includes(q))
+    .sort((a, b) => {
+      const ai = a.importance || 2;
+      const bi = b.importance || 2;
+      if (ai !== bi) return bi - ai;
+      const ar = a.last_referenced_at ? Date.parse(a.last_referenced_at) : 0;
+      const br = b.last_referenced_at ? Date.parse(b.last_referenced_at) : 0;
+      if (ar !== br) return br - ar;
+      return Date.parse(b.updated_at || "") - Date.parse(a.updated_at || "");
+    });
 });
+
+function normalize(s: string) {
+  return (s || "").replace(/\s+/g, "").toLowerCase();
+}
+
+function splitTags(tags?: string) {
+  return (tags || "").split(/[,，；;、\s]+/).map((t) => t.trim()).filter(Boolean);
+}
+
+function importanceLabel(v?: number) {
+  if (v === 3) return "高";
+  if (v === 1) return "低";
+  return "中";
+}
+
+function importanceType(v?: number) {
+  if (v === 3) return "danger";
+  if (v === 1) return "info";
+  return "warning";
+}
+
+function chapterTitle(id?: number | null) {
+  if (!id) return "未关联章节";
+  const chapter = store.chapters.find((c) => c.id === id);
+  return chapter ? chapter.title : `章节 #${id}`;
+}
 
 function openEditor(card: Card | null) {
   if (!store.currentNovel) return;
@@ -148,11 +214,15 @@ function onCardSaved(payload: {
   card_type: string;
   name: string;
   content_json: string;
+  tags: string;
+  importance: number;
 }) {
   if (payload.id != null) {
     store.updateCard(payload.id, {
       name: payload.name,
       content_json: payload.content_json,
+      tags: payload.tags,
+      importance: payload.importance,
     });
   } else {
     store.createCard({
@@ -160,6 +230,8 @@ function onCardSaved(payload: {
       card_type: payload.card_type,
       name: payload.name,
       content_json: payload.content_json,
+      tags: payload.tags,
+      importance: payload.importance,
     });
   }
   ElMessage.success("已保存");
@@ -309,6 +381,16 @@ function cardPreview(card: Card): string {
     return card.content_json?.slice(0, 80) || "";
   }
 }
+
+async function copyCardPrompt(card: Card) {
+  const text = `【卡片：${card.name || "未命名"}】\n类型：${card.card_type}\n标签：${card.tags || "无"}\n重要度：${importanceLabel(card.importance)}\n描述：${cardPreview(card)}`;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    ElMessage.success("已复制为提示词片段");
+  } else {
+    ElMessage.warning("当前浏览器不支持直接复制");
+  }
+}
 </script>
 
 <style scoped>
@@ -335,6 +417,20 @@ function cardPreview(card: Card): string {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.importance-filter {
+  flex: 1;
 }
 .card-list-scroll {
   flex: 1;
@@ -383,6 +479,17 @@ function cardPreview(card: Card): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.reference-line {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-color-primary);
 }
 .empty {
   color: var(--el-text-color-secondary);

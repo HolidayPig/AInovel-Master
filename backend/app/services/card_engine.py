@@ -8,6 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Card, Settings, Novel, Chapter
 from . import ai_service
+from .prompt_budget import (
+    AUTHOR_FORMAT_LIMIT,
+    AUTHOR_STYLE_LIMIT,
+    CARD_TEXT_LIMIT,
+    CARD_TOTAL_LIMIT,
+    FALLBACK_CARD_LIMIT,
+    MAX_RELEVANT_CARDS,
+    limit_text,
+)
 
 
 def _strip_html(html: str) -> str:
@@ -94,31 +103,56 @@ def _extract_card_text(card: Card) -> str:
 
 
 def select_relevant_cards(cards: list[Card], text: str) -> list[Card]:
-    """Select cards by keyword match (card name + optional keywords in content_json)."""
+    """Select cards by name/tags/keywords/text match, weighted by importance."""
     hay = _normalize_text(text)
     if not hay:
-        return cards
-    selected: list[Card] = []
+        return sorted(cards, key=lambda c: (-(c.importance or 2), c.id))[:MAX_RELEVANT_CARDS]
+    scored: list[tuple[int, Card]] = []
     for c in cards:
+        score = max(0, int(c.importance or 2) - 1)
+        kws: list[tuple[str, int]] = []
         name_kw = _normalize_text(c.name or "")
-        kws: list[str] = []
         if name_kw:
-            kws.append(name_kw)
+            kws.append((name_kw, 6))
+        for tag in re.split(r"[,\n，；;、\s]+", c.tags or ""):
+            tag_kw = _normalize_text(tag)
+            if tag_kw:
+                kws.append((tag_kw, 5))
         try:
             o = json.loads(c.content_json or "{}")
             if isinstance(o, dict):
                 extra = o.get("keywords")
                 if isinstance(extra, str):
-                    kws.extend([_normalize_text(x) for x in re.split(r"[,\n，；;]+", extra) if _normalize_text(x)])
+                    kws.extend(
+                        (_normalize_text(x), 5)
+                        for x in re.split(r"[,\n，；;、\s]+", extra)
+                        if _normalize_text(x)
+                    )
         except Exception:
             pass
-        if not kws:
-            continue
-        if any(k and k in hay for k in kws):
-            selected.append(c)
+        card_text = _normalize_text(_extract_card_text(c))
+        if card_text and len(card_text) <= 1200:
+            for token in re.split(r"[，。；、\s]+", card_text[:600]):
+                token_kw = _normalize_text(token)
+                if len(token_kw) >= 2:
+                    kws.append((token_kw, 1))
+        for kw, weight in kws:
+            if kw and kw in hay:
+                score += weight
+        if score > max(0, int(c.importance or 2) - 1):
+            scored.append((score, c))
+    selected = [
+        c
+        for _, c in sorted(scored, key=lambda item: (-item[0], -(item[1].importance or 2), item[1].id))[
+            :MAX_RELEVANT_CARDS
+        ]
+    ]
     # If nothing matched, keep worldview/setting to prevent losing global constraints
     if not selected:
-        selected = [c for c in cards if c.card_type in ("worldview", "setting")]
+        selected = sorted(
+            [c for c in cards if c.card_type in ("worldview", "setting")],
+            key=lambda c: (-(c.importance or 2), c.id),
+        )[:FALLBACK_CARD_LIMIT]
     return selected
 
 
@@ -173,6 +207,8 @@ async def extract_and_update_cards(
                     name=name,
                     content_json=json.dumps({"text": text_val.strip()}, ensure_ascii=False),
                     auto_update=bool(auto) if auto is not None else True,
+                    tags=(item.get("tags") or ""),
+                    importance=max(1, min(int(item.get("importance") or 2), 3)),
                 )
                 db.add(card)
                 existing_keys.add(key)
@@ -270,6 +306,8 @@ async def extract_card_update_suggestions(
                         "name": name,
                         "text": text_val.strip(),
                         "auto_update": bool(auto) if auto is not None else True,
+                        "tags": (item.get("tags") or "").strip(),
+                        "importance": max(1, min(int(item.get("importance") or 2), 3)),
                     }
                 )
         if not out_updates and not out_new:
@@ -480,13 +518,18 @@ def _normalize_suggest_items(arr: list[Any]) -> list[dict[str, Any]]:
             ct = "custom"
         reason = (item.get("reason") or "").strip()
         text = (item.get("text") or "").strip()
+        tags = (item.get("tags") or "").strip()
+        try:
+            importance = max(1, min(int(item.get("importance") or 2), 3))
+        except Exception:
+            importance = 2
         if not name or not text:
             continue
         key = f"{ct}:{name}"
         if key in seen:
             continue
         seen.add(key)
-        out.append({"name": name, "card_type": ct, "reason": reason, "text": text})
+        out.append({"name": name, "card_type": ct, "reason": reason, "text": text, "tags": tags, "importance": importance})
     return out[:12]
 
 
@@ -508,6 +551,8 @@ def _fallback_candidates_from_plain(plain: str, chapter_title: str) -> list[dict
                 "name": f"{title_base}·片段{i + 1}" if len(segs) > 1 else f"{title_base}·摘录",
                 "card_type": "setting",
                 "reason": "模型未识别出结构化条目，已按句切分；请改名并归入角色/世界观等类型",
+                "tags": "待整理",
+                "importance": 2,
                 "text": (
                     "【定位】来自本章正文摘录，待整理为正式卡片\n"
                     "【要点】\n"
@@ -561,7 +606,7 @@ async def suggest_cards_from_chapter(
         + CARD_DESC_FORMAT_INSTRUCTION
         + "\n只输出 JSON：\n"
         '{"candidates":[{"name":"卡片标题","card_type":"character|worldview|setting|plot|custom",'
-        '"reason":"一句理由","text":"按上述四段结构的完整描述"}]}\n'
+        '"reason":"一句理由","tags":"2-5个逗号分隔标签","importance":1到3,"text":"按上述四段结构的完整描述"}]}\n'
         f"最多 12 条。本章有效字数约 {n_chars}。\n\n"
         "【已有卡片】\n" + names_lines + "\n\n【章节正文】\n" + snippet
     )
@@ -602,18 +647,21 @@ def build_system_prompt(cards: list[Card], author: Any = None) -> str:
     parts = [
         "你是一位小说写作助手。请根据用户提供的上文与续写提示，用流畅的中文续写小说内容。",
         "只输出续写正文，不要解释或元评论。",
+        "只写当前章节范围内的内容，不要越界推进到全书后续章节或把整本书主线一次写完。",
+        "禁止输出括号里的写作说明、作者备注、下一章/下一段如何描写的计划、提纲或总结。",
     ]
     if author:
         parts.append("\n【你当前扮演的小说家风格（请严格遵循）】")
         if author.get("name"):
             parts.append(f"- 小说家类型：{author['name']}")
         if author.get("style"):
-            parts.append(f"- 编写风格：{author['style']}")
+            parts.append(f"- 编写风格：{limit_text(author['style'], AUTHOR_STYLE_LIMIT)}")
         if author.get("format_rules"):
-            parts.append(f"- 排版方式：{author['format_rules']}")
+            parts.append(f"- 排版方式：{limit_text(author['format_rules'], AUTHOR_FORMAT_LIMIT)}")
         parts.append("")
     if cards:
         parts.append("\n【当前小说的设定与角色（写作时请严格参照）】")
+        used = 0
         for c in cards:
             name = c.name or f"未命名({c.card_type})"
             try:
@@ -624,7 +672,17 @@ def build_system_prompt(cards: list[Card], author: Any = None) -> str:
                     text = str(content)
             except Exception:
                 text = (c.content_json or "").strip() or "（无内容）"
-            parts.append(f"\n## {name}\n{text}")
+            tags = (c.tags or "").strip()
+            header = f"\n## {name}"
+            if tags:
+                header += f"（标签：{limit_text(tags, 120)}）"
+            header += f"｜重要度：{int(c.importance or 2)}"
+            text = limit_text(text, CARD_TEXT_LIMIT)
+            block = f"{header}\n{text}"
+            if used + len(block) > CARD_TOTAL_LIMIT:
+                break
+            used += len(block)
+            parts.append(block)
         parts.append("\n写作时请与以上设定保持一致。")
     return "\n".join(parts)
 

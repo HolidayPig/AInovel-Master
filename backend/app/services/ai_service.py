@@ -37,6 +37,7 @@ async def stream_xai_responses(
     messages: list[dict],
     proxy_url: str | None = None,
     web_search_enabled: bool = False,
+    max_output_tokens: int | None = None,
 ) -> AsyncIterator[str]:
     """
     Stream from xAI Responses API (/v1/responses), which is required for built-in tools
@@ -49,6 +50,8 @@ async def stream_xai_responses(
         "stream": True,
         "input": messages,
     }
+    if max_output_tokens is not None:
+        body["max_output_tokens"] = min(max(int(max_output_tokens), 256), 24000)
     if web_search_enabled:
         body["tools"] = [{"type": "web_search"}]
     timeout = httpx.Timeout(180.0)
@@ -90,11 +93,14 @@ async def complete_xai_responses(
     proxy_url: str | None = None,
     web_search_enabled: bool = False,
     read_timeout: float = 180.0,
+    max_output_tokens: int | None = None,
 ) -> str:
     """One-shot completion via xAI Responses API (/v1/responses)."""
     url = f"{base_url.rstrip('/')}/responses"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     body: dict = {"model": model, "input": messages}
+    if max_output_tokens is not None:
+        body["max_output_tokens"] = min(max(int(max_output_tokens), 256), 24000)
     if web_search_enabled:
         body["tools"] = [{"type": "web_search"}]
     async with httpx.AsyncClient(
@@ -135,6 +141,7 @@ async def stream_openai_compatible(
     messages: list[dict],
     proxy_url: str | None = None,
     web_search_enabled: bool = False,
+    max_output_tokens: int | None = None,
 ) -> AsyncIterator[str]:
     """Stream from OpenAI-compatible chat completions API (OpenAI, Grok, DeepSeek, etc.)."""
     url = f"{base_url.rstrip('/')}/chat/completions"
@@ -147,6 +154,8 @@ async def stream_openai_compatible(
         "messages": messages,
         "stream": True,
     }
+    if max_output_tokens is not None:
+        body["max_tokens"] = min(max(int(max_output_tokens), 256), 24000)
     # xAI: live_search on chat/completions is deprecated (410). Use Responses API tools instead.
     if web_search_enabled and _is_xai_base_url(base_url):
         async for chunk in stream_xai_responses(
@@ -156,6 +165,7 @@ async def stream_openai_compatible(
             messages=messages,
             proxy_url=proxy_url,
             web_search_enabled=True,
+            max_output_tokens=max_output_tokens,
         ):
             yield chunk
         return
@@ -202,6 +212,7 @@ async def stream_anthropic(
     model: str,
     messages: list[dict],
     proxy_url: str | None = None,
+    max_output_tokens: int | None = None,
 ) -> AsyncIterator[str]:
     """Stream from Anthropic Messages API."""
     url = "https://api.anthropic.com/v1/messages"
@@ -224,7 +235,7 @@ async def stream_anthropic(
             model_messages.append({"role": "user", "content": content})
     body = {
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": min(max(int(max_output_tokens or 4096), 256), 24000),
         "system": system or "You are a helpful assistant.",
         "messages": model_messages,
         "stream": True,
@@ -312,6 +323,7 @@ async def complete(
                 proxy_url=proxy_url,
                 web_search_enabled=True,
                 read_timeout=read_s,
+                max_output_tokens=max_tokens,
             )
 
         tools_variants: list[list[dict]] = [
@@ -355,6 +367,7 @@ async def stream_generate(
     proxy_url: str | None = None,
     web_search_enabled: bool = False,
     extra_config_json: str = "{}",
+    max_output_tokens: int | None = None,
 ) -> AsyncIterator[str]:
     """Unified stream generation: dispatches to OpenAI-compatible or Anthropic."""
     base_url = _get_base_url(provider, extra_config_json)
@@ -374,6 +387,7 @@ async def stream_generate(
             model=model,
             messages=messages,
             proxy_url=proxy_url,
+            max_output_tokens=max_output_tokens,
         ):
             yield chunk
     else:
@@ -384,5 +398,6 @@ async def stream_generate(
             messages=messages,
             proxy_url=proxy_url,
             web_search_enabled=web_search_enabled,
+            max_output_tokens=max_output_tokens,
         ):
             yield chunk

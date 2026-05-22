@@ -5,6 +5,8 @@ export interface GenerateParams {
   author_id: number | null;
   context: string;
   prompt: string;
+  target_words?: number | null;
+  generation_mode?: "continue" | "chapter_from_summary";
   web_search_enabled?: boolean;
 }
 
@@ -16,12 +18,14 @@ export type StreamEvent =
 
 export async function streamGenerate(
   params: GenerateParams,
-  onEvent: (ev: StreamEvent) => void
+  onEvent: (ev: StreamEvent) => void,
+  signal?: AbortSignal
 ): Promise<void> {
   const res = await fetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
+    signal,
   });
   if (!res.ok) {
     const err = await res.text();

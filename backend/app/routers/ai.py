@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 from sqlalchemy import select
 import json
 
 from ..database import get_db
-from ..models import Settings, Card, Author
+from ..models import Settings, Card, Author, Novel, Chapter
 from ..schemas.ai import GenerateRequest, SuggestTitleRequest
 from ..services import ai_service, card_engine
+from ..services.prompt_budget import build_story_context, build_user_content, clamp_target_words
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -36,13 +38,31 @@ async def generate_stream(
             if not api_key:
                 raise HTTPException(status_code=400, detail="API Key not configured")
 
-            # 预处理：作者、卡片与上下文
+            # 预处理：作者、小说/章节元信息、卡片与上下文
             ctx = (body.context or "").strip()
             prompt = (body.prompt or "请继续写下去。").strip()
             ctx_len = len(ctx)
             prompt_len = len(prompt)
 
-            yield status("prepare", f"正在读取小说卡片（用于约束风格与事实）… 上文{ctx_len}字，提示{prompt_len}字")
+            novel = None
+            if body.novel_id:
+                novel_result = await db.execute(select(Novel).where(Novel.id == body.novel_id))
+                novel = novel_result.scalar_one_or_none()
+            chapter = None
+            if body.chapter_id:
+                chapter_result = await db.execute(select(Chapter).where(Chapter.id == body.chapter_id))
+                chapter = chapter_result.scalar_one_or_none()
+
+            target_words = clamp_target_words(body.target_words or (chapter.target_words if chapter else None))
+            chapter_from_summary = body.generation_mode == "chapter_from_summary"
+            story_context = build_story_context(novel=novel, chapter=chapter, include_outline=True)
+            user_content, budget = build_user_content(ctx, prompt, story_context, target_words=target_words)
+
+            yield status(
+                "prepare",
+                "正在读取小说卡片（用于约束风格与事实）… "
+                f"上文{ctx_len}字→{budget.context_final}字，提示{prompt_len}字→{budget.prompt_final}字",
+            )
             cards_result = await db.execute(select(Card).where(Card.novel_id == body.novel_id))
             cards = list(cards_result.scalars().all())
 
@@ -55,13 +75,16 @@ async def generate_stream(
                     author = {"name": a.name, "style": a.style or "", "format_rules": a.format_rules or ""}
 
             yield status("thinking", "正在筛选相关卡片并组装系统提示词…")
-            relevant = card_engine.select_relevant_cards(cards, (ctx or "") + "\n" + (prompt or ""))
+            relevant = card_engine.select_relevant_cards(cards, "\n".join([story_context, ctx, prompt]))
+            if body.chapter_id and relevant:
+                now = datetime.utcnow()
+                for card in relevant:
+                    card.last_referenced_chapter_id = body.chapter_id
+                    card.last_referenced_at = now
+                await db.flush()
             system_prompt = card_engine.build_system_prompt(relevant, author=author)
-
-            user_content = ""
-            if ctx:
-                user_content += "【上文】\n" + ctx + "\n\n"
-            user_content += "【续写提示】\n" + (prompt or "请继续写下去。")
+            budget.system_final = len(system_prompt)
+            budget.cards_used = len(relevant)
 
             web_enabled = (
                 body.web_search_enabled
@@ -70,7 +93,9 @@ async def generate_stream(
             )
             yield status(
                 "thinking" if not web_enabled else "querying",
-                f"已准备就绪：相关卡片 {len(relevant)}/{len(cards)} 张；{'开启' if web_enabled else '未开启'}联网。正在请求模型生成…",
+                f"已准备就绪：相关卡片 {len(relevant)}/{len(cards)} 张，系统提示约{budget.system_final}字；"
+                f"目标{budget.target_words or '未设'}字，输出上限约{budget.max_output_tokens} tokens；"
+                f"{'开启' if web_enabled else '未开启'}联网。正在请求模型生成…",
             )
 
             async for chunk in ai_service.stream_generate(
@@ -82,6 +107,7 @@ async def generate_stream(
                 proxy_url=settings.proxy_url,
                 web_search_enabled=web_enabled,
                 extra_config_json=settings.extra_config_json or "{}",
+                max_output_tokens=budget.max_output_tokens,
             ):
                 # 第一次输出前端会切到 writing，这里也推一次明确状态
                 yield status("writing", "已收到模型输出，正在流式传输…")

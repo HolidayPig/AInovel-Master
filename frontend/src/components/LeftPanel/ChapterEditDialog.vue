@@ -24,6 +24,13 @@
         <el-input-number v-model="form.target_words" :min="0" :max="50000" placeholder="可选" />
         <span class="hint">字（可选，0 表示不限制）</span>
       </el-form-item>
+      <el-form-item label="完成状态">
+        <el-select v-model="form.status" style="width: 180px">
+          <el-option label="草稿" value="drafting" />
+          <el-option label="修订中" value="reviewing" />
+          <el-option label="完成" value="done" />
+        </el-select>
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
@@ -44,7 +51,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelValue": [v: boolean];
   close: [];
-  saved: [payload: { id: number; title: string; summary: string; target_words: number }];
+  saved: [payload: { id: number; title: string; summary: string; target_words: number; status: string }];
 }>();
 
 const visible = computed({
@@ -52,7 +59,7 @@ const visible = computed({
   set: (v) => emit("update:modelValue", v),
 });
 
-const form = ref({ title: "", summary: "", target_words: 0 });
+const form = ref({ title: "", summary: "", target_words: 0, status: "drafting" });
 
 watch(
   () => props.modelValue,
@@ -63,6 +70,7 @@ watch(
       title: props.chapter.title || "",
       summary: props.chapter.summary || "",
       target_words: props.chapter.target_words || 0,
+      status: props.chapter.status || "drafting",
     };
   }
 );
@@ -75,6 +83,7 @@ function submit() {
     title,
     summary: form.value.summary.trim(),
     target_words: form.value.target_words || 0,
+    status: form.value.status,
   });
   visible.value = false;
   emit("close");
@@ -88,4 +97,3 @@ function submit() {
   color: var(--el-text-color-secondary);
 }
 </style>
-

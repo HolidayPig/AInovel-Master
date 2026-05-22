@@ -10,7 +10,9 @@ export const useSettingsStore = defineStore("settings", () => {
   async function fetchSettings() {
     const res = await settingsApi.listSettings();
     list.value = res.data;
-    if (res.data.length && !currentId.value) currentId.value = res.data[0].id;
+    if (res.data.length && !res.data.some((s) => s.id === currentId.value)) {
+      currentId.value = res.data[0].id;
+    }
     return res.data;
   }
 
@@ -46,12 +48,17 @@ export const useSettingsStore = defineStore("settings", () => {
     return list.value.find((s) => s.id === currentId.value) ?? null;
   }
 
+  function setCurrent(id: number | null) {
+    currentId.value = id;
+  }
+
   return {
     list,
     currentId,
     fetchSettings,
     createDefault,
     updateSettings,
+    setCurrent,
     current,
   };
 });

@@ -8,6 +8,7 @@ class ChapterCreate(BaseModel):
     content: str = ""
     summary: str | None = None
     target_words: int | None = None
+    status: str = "drafting"
     sort_order: int = 0
 
 
@@ -16,6 +17,7 @@ class ChapterUpdate(BaseModel):
     content: str | None = None
     summary: str | None = None
     target_words: int | None = None
+    status: str | None = None
     sort_order: int | None = None
 
 
@@ -26,6 +28,7 @@ class ChapterResponse(BaseModel):
     content: str
     summary: str | None
     target_words: int | None
+    status: str = "drafting"
     sort_order: int
     created_at: datetime
     updated_at: datetime

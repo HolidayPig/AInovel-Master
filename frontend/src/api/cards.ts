@@ -13,6 +13,8 @@ export function createCard(data: {
   name?: string;
   content_json?: string;
   auto_update?: boolean;
+  tags?: string;
+  importance?: number;
 }) {
   return api.post<Card>("/cards", data);
 }
@@ -23,7 +25,7 @@ export function getCard(id: number) {
 
 export function updateCard(
   id: number,
-  data: { card_type?: string; name?: string; content_json?: string; auto_update?: boolean }
+  data: { card_type?: string; name?: string; content_json?: string; auto_update?: boolean; tags?: string; importance?: number }
 ) {
   return api.patch<Card>(`/cards/${id}`, data);
 }
@@ -76,7 +78,7 @@ export function suggestCardsFromChapter(
   settingsId: number
 ) {
   return api.post<{
-    candidates: { name: string; card_type: string; reason: string; text: string }[];
+    candidates: { name: string; card_type: string; reason: string; text: string; tags?: string; importance?: number }[];
   }>(
     "/cards/suggest-from-chapter",
     {
